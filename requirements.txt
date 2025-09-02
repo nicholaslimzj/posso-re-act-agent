@@ -1,0 +1,19 @@
+# Core LangGraph and AI
+langgraph
+openai
+
+# Data and Memory
+redis
+pydantic
+numpy
+sentence-transformers
+
+# Utilities
+python-dotenv
+loguru
+requests
+
+# Text processing
+langchain-text-splitters
+langchain-openai
+langchain-core

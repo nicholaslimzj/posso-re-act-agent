@@ -1,0 +1,83 @@
+{
+  "schools": {
+    "74274": {
+      "school_id": "74274",
+      "name": "Posso Preschool Tampines",
+      "branch_phone": "+6512345678",
+      "address": "123 Tampines Street, Singapore",
+      "pipedrive": {
+        "pipeline_id": 1,
+        "stages": {
+          "lead_in": 1,
+          "tour_booked": 3
+        },
+        "labels": {
+          "callback_requested": 27
+        },
+        "activity_types": {
+          "school_tour": "meeting",
+          "callback": "call"
+        },
+        "custom_fields": {
+          "child_name": "f1ae1e9b76c31a4997c239f38a865775010278db",
+          "child_dob": "3d1fb18f17b0c5bcf9af1f91df6cdefe5d64ddc5",
+          "preferred_start_date": "2593c59d66c42e0ec816336a725755c2b5a088d2"
+        }
+      },
+      "chatwoot": {
+        "inbox_id": 74274,
+        "agent_id_for_handover": 130086
+      },
+      "tour_slots": ["10:00", "13:00", "15:00"],
+      "working_days": [1, 2, 3, 4, 5]
+    },
+    "9999": {
+      "school_id": "9999",
+      "name": "Posso Preschool Jurong",
+      "branch_phone": "+6512345679",
+      "address": "456 Jurong Road, Singapore",
+      "pipedrive": {
+        "pipeline_id": 2,
+        "stages": {
+          "lead_in": 5,
+          "tour_booked": 6
+        },
+        "labels": {
+          "callback_requested": "xyz_callback"
+        },
+        "activity_types": {
+          "school_tour": "meeting",
+          "callback": "call"
+        },
+        "custom_fields": {
+          "child_name": "abc124",
+          "child_dob": "def457",
+          "preferred_start_date": "jkl013"
+        }
+      },
+      "chatwoot": {
+        "inbox_id": 2,
+        "agent_id_for_handover": 2
+      },
+      "tour_slots": ["10:00", "13:00", "15:00"],
+      "working_days": [1, 2, 3, 4, 5]
+    }
+  },
+  "bot": {
+    "agent_id": 130086
+  },
+  "other_branches": {
+    "bedok": {
+      "name": "Posso Preschool Bedok",
+      "phone": "+6512345680"
+    },
+    "punggol": {
+      "name": "Posso Preschool Punggol", 
+      "phone": "+6512345681"
+    },
+    "sembawang": {
+      "name": "Posso Preschool Sembawang",
+      "phone": "+6512345682"
+    }
+  }
+}
