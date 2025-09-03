@@ -1,11 +1,11 @@
 services:
   redis:
     image: redis:7-alpine
-    container_name: posso-redis
+    container_name: posso-redis-dev
     ports:
       - "6379:6379"
     volumes:
-      - redis_data:/data
+      - redis_dev_data:/data
     command: redis-server --appendonly yes
     restart: unless-stopped
     healthcheck:
@@ -16,7 +16,7 @@ services:
 
   app:
     build: .
-    container_name: posso-app
+    container_name: posso-app-dev
     ports:
       - "8000:8000"
     environment:
@@ -24,17 +24,15 @@ services:
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
       - LANGCHAIN_TRACING_V2=${LANGCHAIN_TRACING_V2}
       - LANGCHAIN_API_KEY=${LANGCHAIN_API_KEY}
-      - RUN_MODE=${RUN_MODE:-test}  # Default to test, can override with RUN_MODE=web
-      - DEV_MODE=${DEV_MODE:-false}  # Enable auto-reload with DEV_MODE=true
+      - RUN_MODE=web
+      - DEV_MODE=true  # Enable auto-reload
     volumes:
-      - .:/app
+      - .:/app  # Mount entire project for hot reload
       - ./data:/app/data
     depends_on:
       redis:
         condition: service_healthy
     command: python main.py
-    profiles:
-      - full
 
 volumes:
-  redis_data:
+  redis_dev_data:

@@ -11,7 +11,7 @@ from loguru import logger
 from config import settings, school_manager
 from context import context_loader, redis_manager, FullContext
 from agents import ReActAgent
-from tools import update_context_tool, check_unread_messages_tool, clear_unread_messages_tool
+from tools import check_unread_messages_tool, clear_unread_messages_tool
 
 
 class MessageHandler:
@@ -22,6 +22,38 @@ class MessageHandler:
         self.redis_manager = redis_manager
         self.agent = ReActAgent()
         self.school_manager = school_manager
+    
+    async def process_chatwoot_message_async(
+        self,
+        inbox_id: int,
+        contact_id: str,
+        conversation_id: str,
+        message_content: str,
+        message_id: Optional[str] = None,
+        whatsapp_profile: Optional[Dict[str, Any]] = None,
+        chatwoot_additional_params: Optional[Dict[str, Any]] = None,
+        recent_messages: Optional[list] = None
+    ) -> Dict[str, Any]:
+        """Async wrapper for process_chatwoot_message"""
+        import asyncio
+        from concurrent.futures import ThreadPoolExecutor
+        
+        # Run the synchronous processing in a thread pool
+        with ThreadPoolExecutor() as executor:
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(
+                executor,
+                self.process_chatwoot_message,
+                inbox_id,
+                contact_id,
+                conversation_id,
+                message_content,
+                message_id,
+                whatsapp_profile,
+                chatwoot_additional_params,
+                recent_messages
+            )
+            return result
     
     def process_chatwoot_message(
         self,
@@ -111,8 +143,8 @@ class MessageHandler:
                     contact_id=contact_id
                 )
                 
-                # Check for queued messages and process them
-                self._process_queued_messages(inbox_id, contact_id, result["context"])
+                # Note: Queued messages are now handled within the ReAct loop via injection
+                # self._process_queued_messages(inbox_id, contact_id, result["context"])
                 
                 # Save final context
                 self.context_loader.save_context(inbox_id, contact_id, result["context"])
@@ -129,6 +161,21 @@ class MessageHandler:
                 }
                 
             finally:
+                # Clean up before releasing lock
+                try:
+                    # Clear any remaining queued messages (that came in during final response)
+                    active_context = self.redis_manager.get_active_context(inbox_id, contact_id)
+                    if active_context and active_context.queued_messages:
+                        logger.info(f"Clearing {len(active_context.queued_messages)} unprocessed messages at end of session")
+                        active_context.queued_messages = []
+                        self.redis_manager.save_active_context(inbox_id, contact_id, active_context)
+                    
+                    # Clear new messages flag
+                    self.redis_manager.clear_new_messages_flag(inbox_id, contact_id)
+                    
+                except Exception as cleanup_error:
+                    logger.error(f"Error during cleanup: {cleanup_error}")
+                
                 # Always release the lock
                 self.redis_manager.release_session_lock(inbox_id, contact_id, lock_id)
             
@@ -156,6 +203,8 @@ class MessageHandler:
             result = self.agent.process_message(
                 message=message_content,
                 context=context,
+                inbox_id=inbox_id,
+                contact_id=contact_id,
                 chatwoot_history=chatwoot_history
             )
             
@@ -170,37 +219,6 @@ class MessageHandler:
             logger.error(f"Error in ReAct processing: {e}")
             raise
     
-    def _create_context_aware_tools(self, inbox_id: int, contact_id: str) -> list:
-        """Create tools that have access to current context"""
-        from langchain_core.tools import tool
-        
-        @tool
-        def update_context_aware(field_to_update: str, new_value: str, reason: str = "new_information") -> dict:
-            """
-            Update context when user provides corrections or new information.
-            Args:
-                field_to_update: Field name like "parent_preferred_name", "child_name", etc.
-                new_value: New value for the field
-                reason: Reason for update like "user_correction", "new_information"
-            Returns:
-                {"status": "updated", "field": field_name, "old_value": old, "new_value": new}
-            """
-            return update_context_tool(inbox_id, contact_id, field_to_update, new_value, reason)
-        
-        @tool
-        def check_unread_messages_aware() -> dict:
-            """
-            Check for messages that arrived while ReAct was processing.
-            Returns:
-                {
-                    "has_unread": bool,
-                    "messages": [{"message": "text", "timestamp": "..."}],
-                    "count": int
-                }
-            """
-            return check_unread_messages_tool(inbox_id, contact_id)
-        
-        return [update_context_aware, check_unread_messages_aware]
     
     def _process_queued_messages(self, inbox_id: int, contact_id: str, context: FullContext):
         """Process any messages that were queued during ReAct processing"""

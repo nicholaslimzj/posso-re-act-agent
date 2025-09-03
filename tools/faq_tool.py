@@ -201,13 +201,11 @@ class FAQTool:
             
             # Use embeddings if available, otherwise text search
             if self.chunk_embeddings is not None:
-                logger.info(f"🔍 Using VECTOR SEARCH (embeddings) for: '{question[:50]}...'")
+                logger.debug(f"Using vector search for: '{question[:50]}...'")
                 search_results = self._semantic_search(question, top_k)
-                logger.info(f"📊 Vector similarities: {[f'{s:.3f}' for _, s in search_results[:3]]}")
             else:
-                logger.info(f"📝 Using TEXT SEARCH (keywords) for: '{question[:50]}...'")
+                logger.debug(f"Using text search for: '{question[:50]}...'")
                 search_results = self._text_search(question, top_k)
-                logger.info(f"📊 Text similarities: {[f'{s:.3f}' for _, s in search_results[:3]]}")
             
             if not search_results:
                 return {"status": "no_match"}

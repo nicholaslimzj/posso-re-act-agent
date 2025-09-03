@@ -30,7 +30,8 @@ class PersistentContext(BaseModel):
     # Child Information
     child_name: Optional[str] = None
     child_dob: Optional[str] = None  # YYYY-MM-DD format
-    child_enrollment_date_preferred: Optional[str] = None
+    child_age: Optional[int] = None  # Age in years
+    preferred_enrollment_date: Optional[str] = None  # YYYY-MM-DD format
     
     # Pipedrive Integration
     pipedrive_person_id: Optional[int] = None

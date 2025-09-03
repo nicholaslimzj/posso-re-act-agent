@@ -3,74 +3,77 @@
 ## Hour 1: Foundation & FAQ Tool (60 mins)
 
 ### Docker Development Environment Setup (15 mins)
-- [ ] Create `docker-compose.yml` with Redis and app services
-- [ ] Create `Dockerfile` for Python app
-- [ ] Create `.env` file for environment variables
-- [ ] Basic folder structure: `/tools`, `/agents`, `/context`, `/config`, `/data`
-- [ ] Test Docker environment: `docker-compose up`
+- [x] Create `docker-compose.yml` with Redis and app services
+- [x] Create `Dockerfile` for Python app
+- [x] Create `.env` file for environment variables
+- [x] Basic folder structure: `/tools`, `/agents`, `/context`, `/config`, `/data`
+- [x] Test Docker environment: `docker-compose up`
 
 ### Dependencies & Configuration (10 mins)
-- [ ] Create `requirements.txt`:
-  - `langgraph`, `litellm`, `redis`, `faiss-cpu`, `openai`, `pydantic`
-  - `python-dotenv`, `loguru`
-- [ ] Create `config/settings.py` for environment management
-- [ ] Test Redis connection from container
+- [x] Create `requirements.txt`:
+  - [x] `langgraph`, ~~`litellm`~~ (using `langchain-openai`), `redis`, ~~`faiss-cpu`~~ (using `sentence-transformers`), `openai`, `pydantic`
+  - [x] `python-dotenv`, `loguru`
+- [x] Create `config/settings.py` for environment management
+- [x] Test Redis connection from container
 
 ### Context Models (20 mins)
-- [ ] Create `context/models.py` with Pydantic models:
-  - `PersistentContext` (Chatwoot fields)
-  - `RuntimeContext` (session data)  
-  - `ActiveTaskContext` (Redis state)
-- [ ] Create `context/redis_helpers.py`: `get_context()`, `save_context()`
-- [ ] Test context loading/saving
+- [x] Create `context/models.py` with Pydantic models:
+  - [x] `PersistentContext` (Chatwoot fields)
+  - [x] `RuntimeContext` (session data)  
+  - [x] `ActiveTaskContext` (Redis state)
+- [x] Create `context/redis_helpers.py`: `get_context()`, `save_context()`
+- [x] Test context loading/saving
 
 ### FAQ Tool Implementation (15 mins)
-- [ ] Extract FAQ text from PDF into `data/posso_faq.txt`
-- [ ] Build `tools/faq_tool.py`:
-  - Text splitting with RecursiveCharacterTextSplitter
-  - FAISS vector store with OpenAI embeddings
-  - `get_faq_answer(question: str)` function
-- [ ] Test FAQ tool: "What makes Posso different?"
+- [x] Extract FAQ text from PDF into `data/posso_faq.txt`
+- [x] Build `tools/faq_tool.py`:
+  - [x] Text splitting with RecursiveCharacterTextSplitter
+  - [x] ~~FAISS vector store with OpenAI embeddings~~ (using sentence-transformers for local embeddings)
+  - [x] `get_faq_answer(question: str)` function
+- [x] Test FAQ tool: "What makes Posso different?"
 
 ## Hour 2: Basic ReAct Loop (60 mins)
 
 ### LangGraph ReAct Agent (35 mins)
-- [ ] Create `agents/react_agent.py`:
-  - Basic ReAct workflow with LangGraph
-  - Connect LiteLLM with GPT-4o-mini
-  - Register FAQ tool with proper schema
-- [ ] Create `main.py` for testing agent interactions
-- [ ] Test simple flow: Question → Thought → FAQ Tool → Response
-- [ ] Debug and fix tool calling issues
+- [x] Create `agents/react_agent.py`:
+  - [x] Basic ReAct workflow with LangGraph
+  - [x] Connect ~~LiteLLM~~ LangChain with GPT-4o-mini via OpenRouter
+  - [x] Register FAQ tool with proper schema
+- [x] Create `main.py` for testing agent interactions
+- [x] Test simple flow: Question → Thought → FAQ Tool → Response
+- [x] Debug and fix tool calling issues (V2 architecture with message accumulation)
 
 ### Context Integration (25 mins)
-- [ ] Load context at session start (create mock Chatwoot data)
-- [ ] Save reasoning history to Redis after each cycle
-- [ ] Implement basic session lifecycle management
-- [ ] Test context persistence across multiple messages
-- [ ] Basic session cleanup with TTL
+- [x] Load context at session start (create mock Chatwoot data)
+- [x] Save reasoning history to Redis after each cycle (simplified - not full history)
+- [x] Implement basic session lifecycle management
+- [x] Test context persistence across multiple messages
+- [x] Basic session cleanup with TTL
 
 ## Hour 3: Advanced ReAct Features (60 mins)
 
 ### Message Queuing System (20 mins)
-- [ ] Implement Redis session locking mechanism
-- [ ] Create `new_messages:{school_id}_{contact_id}` flag system
-- [ ] Build message queuing for concurrent requests
-- [ ] Test concurrent message handling
+- [x] Implement Redis session locking mechanism
+- [x] Create `new_messages:{school_id}_{contact_id}` flag system (using queue)
+- [x] Build message queuing for concurrent requests
+- [x] Test concurrent message handling
 
 ### Context Update Tool (20 mins)
-- [ ] Build `tools/context_tool.py`:
-  - `update_context(field, new_value, reason)` function
-  - Update Redis active context
-  - Prepare Chatwoot sync data
-- [ ] Register tool with ReAct agent
-- [ ] Test correction flow: "Actually my name is Jon, not John"
+- [x] Build `tools/context_tool.py`:
+  - [x] `update_parent_details()` - Update parent's preferred contact info
+  - [x] `update_child_details()` - Update same child's information
+  - [x] `track_new_child()` - Switch to different child (resets Pipedrive deal!)
+  - [x] Update Redis active context
+  - [x] Prepare Chatwoot sync data
+- [x] **Register tools with ReAct agent** ✅ DONE - Context-aware tools created
+- [x] **Enhanced system prompt** to guide tool usage
+- [ ] **Test correction flow: "Actually my name is Jon, not John"** (Ready to test)
 
 ### Unread Messages Tool (20 mins)
-- [ ] Build `check_unread_messages()` tool
-- [ ] Implement end-of-cycle message processing
-- [ ] Test complex flow: booking + curriculum question + name correction
-- [ ] Debug multi-step ReAct reasoning
+- [x] Build `check_unread_messages()` tool
+- [x] Implement end-of-cycle message processing
+- [ ] **Test complex flow: booking + curriculum question + name correction** ⚠️ NOT DONE (no booking tools yet)
+- [x] Debug multi-step ReAct reasoning
 
 ## Docker Compose Configuration
 
@@ -135,9 +138,35 @@ REDIS_URL=redis://localhost:6379
 ✅ **FAQ answering with real Posso school data**  
 ✅ **Natural conversation flow with topic switching**  
 ✅ **Message queuing for concurrent requests**  
-✅ **Context corrections mid-conversation**  
+✅ **Context corrections mid-conversation** (3 specialized tools implemented)  
 ✅ **Redis persistence and session management**  
+
+## What We Actually Built (Beyond Plan)
+
+### Improvements Over Original Plan:
+- [x] **V2 ReAct Architecture** - Cleaner stateless design with message accumulation
+- [x] **Local Embeddings** - Using sentence-transformers instead of OpenAI (free!)
+- [x] **Better Context Separation** - Clear distinction between Graph state, Active, Runtime, and Persistent contexts
+- [x] **OpenRouter Integration** - Instead of direct OpenAI
+- [x] **Production Error Handling** - Graceful fallbacks throughout
+
+### Additional Features Implemented:
+- [x] **Three specialized context update tools** instead of one generic tool
+- [x] **Message injection system** for handling concurrent messages in ReAct loop
+- [x] **Web server with FastAPI** for Chatwoot webhook integration
+- [x] **Enhanced system prompt** with tool usage guidelines
+- [x] **Proper concurrency handling** with Redis locks and message queuing
+
+### Still TODO:
+- [ ] **Implement booking tools** (`check_availability`, `book_tour`, `request_callback`)
+- [ ] **Format Chatwoot conversation history** properly for agent
+- [ ] **Test end-to-end correction flow** with real messages
+- [ ] **Add Pipedrive integration** for deal creation/updates
 
 ## Ready for Hours 4-6: Real Booking Tools! 🚀
 
-**Next Phase:** Implement `check_availability()`, `book_tour()`, `request_callback()` tools with mock Pipedrive APIs, then add real integrations.
+**Next Phase:** 
+1. First register the context update tool
+2. Implement `check_availability()`, `book_tour()`, `request_callback()` tools 
+3. Add Chatwoot conversation history formatting
+4. Real Pipedrive integration
