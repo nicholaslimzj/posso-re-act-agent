@@ -49,12 +49,17 @@ def book_or_reschedule_tour(
         - Missing/unconfirmed data requirements with guided next steps
     """
     try:
+        logger.info(f"book_or_reschedule_tour called for {inbox_id}_{contact_id}")
+        logger.info(f"  Action: {action}, Date: {tour_date}, Time: {tour_time}")
+        
         # Get persistent context
         persistent_context = redis_manager.get_persistent_context(inbox_id, contact_id)
         if not persistent_context:
             from context import PersistentContext
             persistent_context = PersistentContext()
             logger.warning(f"No persistent context found for {inbox_id}_{contact_id}, using defaults")
+        else:
+            logger.info(f"Loaded persistent context with {len(persistent_context.model_dump())} fields")
         
         confirmed_fields = confirmed_fields or []
         
@@ -73,23 +78,24 @@ def book_or_reschedule_tour(
                 logger.info("Auto-creating Pipedrive deal...")
                 
                 deal_result = asyncio.run(create_enrollment_deal(
-                    parent_name=context.persistent.parent_preferred_name,
-                    child_name=context.persistent.child_name,
-                    parent_phone=context.runtime.whatsapp_phone,  # Use WhatsApp as fallback
-                    parent_email=context.persistent.parent_preferred_email,
-                    child_dob=context.persistent.child_dob,
-                    enrollment_date=context.persistent.preferred_enrollment_date
+                    parent_name=persistent_context.parent_preferred_name,
+                    child_name=persistent_context.child_name,
+                    parent_phone=persistent_context.parent_preferred_phone,  # Use stored phone
+                    parent_email=persistent_context.parent_preferred_email,
+                    child_dob=persistent_context.child_dob,
+                    enrollment_date=persistent_context.preferred_enrollment_date,
+                    school_id=str(inbox_id)  # Use inbox_id as school_id
                 ))
                 
                 if deal_result.get("status") == "success":
                     # Save deal ID to context
-                    context.persistent.pipedrive_deal_id = deal_result["deal_id"]
-                    context.persistent.pipedrive_person_id = deal_result["person_id"]
-                    redis_manager.save_persistent_context(inbox_id, contact_id, context.persistent)
+                    persistent_context.pipedrive_deal_id = deal_result["deal_id"]
+                    persistent_context.pipedrive_person_id = deal_result["person_id"]
+                    redis_manager.save_persistent_context(inbox_id, contact_id, persistent_context)
                     
                     # Now retry the analysis with the deal created
                     analysis = _analyze_booking_requirements(
-                        context.persistent,
+                        persistent_context,
                         action,
                         confirmed_fields
                     )
@@ -124,15 +130,17 @@ def book_or_reschedule_tour(
                 }
         
         # All requirements met - proceed with booking
-        deal_id = context.persistent.pipedrive_deal_id
-        activity_id = context.persistent.tour_activity_id if action == "reschedule" else None
+        deal_id = persistent_context.pipedrive_deal_id
+        activity_id = persistent_context.tour_activity_id if action == "reschedule" else None
         
-        # Calculate child level if we have the data
+        # Calculate child level if we have valid data
         child_level = None
-        if context.persistent.child_dob and context.persistent.preferred_enrollment_date:
+        if (persistent_context.child_dob and 
+            persistent_context.preferred_enrollment_date and 
+            persistent_context.preferred_enrollment_date != "Unknown"):
             child_level = calculate_child_level(
-                context.persistent.child_dob,
-                context.persistent.preferred_enrollment_date
+                persistent_context.child_dob,
+                persistent_context.preferred_enrollment_date
             )
         
         # Execute the booking
@@ -141,17 +149,17 @@ def book_or_reschedule_tour(
                 deal_id=deal_id,
                 tour_date=tour_date,
                 tour_time=tour_time,
-                child_name=context.persistent.child_name,
+                child_name=persistent_context.child_name,
                 child_level=child_level
             ))
             
             # Update context with booking details
             if result.status == "success":
-                context.persistent.tour_activity_id = result.activity_id
-                context.persistent.tour_scheduled_date = tour_date
-                context.persistent.tour_scheduled_time = tour_time
-                context.persistent.tour_booked_at = datetime.utcnow().isoformat()
-                redis_manager.save_persistent_context(inbox_id, contact_id, context.persistent)
+                persistent_context.tour_activity_id = result.activity_id
+                persistent_context.tour_scheduled_date = tour_date
+                persistent_context.tour_scheduled_time = tour_time
+                persistent_context.tour_booked_at = datetime.utcnow().isoformat()
+                redis_manager.save_persistent_context(inbox_id, contact_id, persistent_context)
             
             return {
                 "status": result.status,
@@ -175,15 +183,15 @@ def book_or_reschedule_tour(
                 activity_id=activity_id,
                 tour_date=tour_date,
                 tour_time=tour_time,
-                child_name=context.persistent.child_name,
+                child_name=persistent_context.child_name,
                 child_level=child_level
             ))
             
             # Update context with new booking details
             if result.status == "success":
-                context.persistent.tour_scheduled_date = tour_date
-                context.persistent.tour_scheduled_time = tour_time
-                redis_manager.save_persistent_context(inbox_id, contact_id, context.persistent)
+                persistent_context.tour_scheduled_date = tour_date
+                persistent_context.tour_scheduled_time = tour_time
+                redis_manager.save_persistent_context(inbox_id, contact_id, persistent_context)
             
             return {
                 "status": result.status,
@@ -219,6 +227,8 @@ def _analyze_booking_requirements(
     - reason: Why we need this
     - context_hint: Help for the LLM to ask naturally
     """
+    
+    # Analyzing booking requirements based on current context and action
     
     # Define the collection workflow stages and fields
     workflow = [
@@ -311,9 +321,13 @@ def _analyze_booking_requirements(
             field_value = getattr(persistent_context, field_name, None)
             is_required = field.get("required", False)
             
+            # Debug log field checking
+            # Check if field is populated
+            
             # Check if field exists
             if not field_value or field_value == "Unknown":
                 if is_required:
+                    # Missing required field
                     # This is the next required field to collect
                     return {
                         "status": "need_info",
@@ -326,29 +340,13 @@ def _analyze_booking_requirements(
                         "progress": f"{completed_required}/{total_required} required fields collected"
                     }
             else:
-                # Field exists - check if it needs confirmation
+                # Field exists
                 if is_required:
                     completed_required += 1
+                    # Field already has value
                     
-                # For critical fields, confirm if not already confirmed this session
-                if field_name in ["parent_preferred_email", "child_dob"] and \
-                   field_name not in confirmed_fields:
-                    # Ask for confirmation of critical data
-                    confirmation_prompts = {
-                        "parent_preferred_email": f"Just to confirm, should I send the tour details to {field_value}?",
-                        "child_dob": f"I have your child's birthday as {field_value}. Is that correct?"
-                    }
-                    
-                    return {
-                        "status": "need_confirmation",
-                        "stage": stage["stage"],
-                        "next_action": "confirm_data",
-                        "prompt_for": field_name,
-                        "current_value": field_value,
-                        "question": confirmation_prompts.get(field_name),
-                        "reason": "confirming important details",
-                        "progress": f"{completed_required}/{total_required} required fields collected"
-                    }
+                # Skip confirmation logic - if the field has a value, we trust it
+                # The user can always correct it if needed
     
     # Check for Pipedrive deal
     if not persistent_context.pipedrive_deal_id:

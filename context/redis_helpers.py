@@ -63,7 +63,7 @@ class RedisContextManager:
                 context_data
             )
             
-            logger.debug(f"Saved active context for {inbox_id}_{contact_id}")
+            # Active context saved successfully
             return True
             
         except Exception as e:
@@ -74,11 +74,14 @@ class RedisContextManager:
         """Retrieve persistent customer context from Redis"""
         try:
             redis_key = self._get_persistent_context_key(inbox_id, contact_id)
+            # Loading persistent context from Redis
             context_data = self.redis_client.get(redis_key)
             
             if context_data:
                 data = json.loads(context_data)
+                # Persistent context loaded successfully
                 return PersistentContext(**data)
+            # No persistent context found - will return None
             return None
             
         except Exception as e:
@@ -95,7 +98,7 @@ class RedisContextManager:
             ttl_30_days = 30 * 24 * 60 * 60
             self.redis_client.setex(redis_key, ttl_30_days, context_data)
             
-            logger.debug(f"Saved persistent context for {inbox_id}_{contact_id}")
+            # Persistent context saved successfully
             return True
             
         except Exception as e:
@@ -110,7 +113,7 @@ class RedisContextManager:
             
             if keys:
                 result = self.redis_client.delete(*keys)
-                logger.debug(f"Deleted {result} context keys for {inbox_id}_{contact_id}")
+                logger.info(f"Deleted {result} context keys for {inbox_id}_{contact_id}")
                 return result > 0
             return True
             
@@ -119,7 +122,7 @@ class RedisContextManager:
             return False
     
     
-    def acquire_session_lock(self, inbox_id: int, contact_id: str, lock_id: str, timeout_seconds: int = 300) -> bool:
+    def acquire_session_lock(self, inbox_id: int, contact_id: str, lock_id: str, timeout_seconds: int = 120) -> bool:
         """Acquire session lock using Redis atomic operations"""
         try:
             lock_key = self._get_session_lock_key(inbox_id, contact_id)
@@ -129,14 +132,14 @@ class RedisContextManager:
                 lock_key, 
                 lock_id, 
                 nx=True,  # Only set if key doesn't exist
-                ex=timeout_seconds  # Expire in 5 minutes by default
+                ex=timeout_seconds  # Expire in 2 minutes by default
             )
             
             if result:
-                logger.debug(f"Acquired session lock for {inbox_id}_{contact_id} by {lock_id}")
+                logger.info(f"Acquired session lock for {inbox_id}_{contact_id}")
                 return True
             else:
-                logger.debug(f"Failed to acquire session lock for {inbox_id}_{contact_id}, already locked")
+                logger.info(f"Session already locked for {inbox_id}_{contact_id}")
                 return False
             
         except Exception as e:
@@ -170,10 +173,10 @@ class RedisContextManager:
             result = self.redis_client.eval(lua_script, 1, lock_key, lock_id)
             
             if result:
-                logger.debug(f"Released session lock for {inbox_id}_{contact_id} by {lock_id}")
+                logger.info(f"Released session lock for {inbox_id}_{contact_id}")
                 return True
             else:
-                logger.debug(f"Failed to release session lock for {inbox_id}_{contact_id}, not owned by {lock_id}")
+                # Lock not owned by this lock_id, cannot release
                 return False
             
         except Exception as e:

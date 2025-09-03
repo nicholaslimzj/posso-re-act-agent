@@ -23,12 +23,13 @@ from models.pipedrive_models import (
 )
 
 
-async def get_blocked_slots(start_date: str, end_date: str) -> Set[str]:
+async def get_blocked_slots(start_date: str, end_date: str, school_id: Optional[str] = None) -> Set[str]:
     """
     Get all blocked time slots from Pipedrive activities.
     
     This includes:
     - All active activities (meetings, calls, tasks, etc.) at specific times
+    - Activities that span across multiple time slots (using duration)
     - Whole-day activities that block entire days
     
     Args:
@@ -55,7 +56,7 @@ async def get_blocked_slots(start_date: str, end_date: str) -> Set[str]:
             
             # Parse response with model
             response_data = response.json()
-            logger.debug(f"Pipedrive API response success: {response_data.get('success')}")
+            # Response success logged at info level when activities found
             
             list_response = PipedriveListResponse(**response_data)
             if not list_response.success or not list_response.data:
@@ -69,12 +70,11 @@ async def get_blocked_slots(start_date: str, end_date: str) -> Set[str]:
                 # Parse each activity with model
                 activity = PipedriveActivity(**activity_data)
                 
-                logger.debug(f"Activity: {activity.subject} - Type: {activity.type} - Done: {activity.done}")
-                logger.debug(f"  Due date: {activity.due_date} - Due time: {activity.due_time}")
+                # Activity details logged at info level when blocking slots
                 
                 # Skip only if activity is marked as done/cancelled
                 if activity.is_cancelled():
-                    logger.debug(f"  Skipping cancelled/done activity")
+                    continue  # Skip cancelled/done activities
                     continue
                 
                 # Check if this is a whole-day activity (no specific time)
@@ -85,14 +85,58 @@ async def get_blocked_slots(start_date: str, end_date: str) -> Set[str]:
                     booked.add(f"{sg_date}_WHOLE_DAY")
                     logger.info(f"Blocking entire day {sg_date}: {activity.subject}")
                 else:
-                    # Block specific time slot
+                    # Handle timed activities with duration
                     sg_date = activity.get_singapore_date()
                     sg_time = activity.get_singapore_time()
                     
                     if sg_date and sg_time:
-                        slot_key = f"{sg_date}_{sg_time}"
-                        booked.add(slot_key)
-                        logger.info(f"Blocking time slot {slot_key}: {activity.subject}")
+                        # Parse the activity start time
+                        from datetime import datetime, timedelta
+                        import pytz
+                        
+                        singapore_tz = pytz.timezone('Asia/Singapore')
+                        
+                        # Create datetime for activity start
+                        activity_start = datetime.strptime(f"{sg_date} {sg_time}", "%Y-%m-%d %H:%M")
+                        activity_start = singapore_tz.localize(activity_start)
+                        
+                        # Calculate activity end time based on duration
+                        duration_hours = 1  # Default 1 hour if no duration specified
+                        if activity.duration:
+                            # Parse duration format "HH:MM" or "HH:MM:SS"
+                            duration_parts = activity.duration.split(":")
+                            if len(duration_parts) >= 2:
+                                duration_hours = int(duration_parts[0])
+                                duration_minutes = int(duration_parts[1])
+                                duration_hours += duration_minutes / 60
+                        
+                        activity_end = activity_start + timedelta(hours=duration_hours)
+                        
+                        # Get tour slots from school configuration
+                        if school_id:
+                            from config import school_manager
+                            school_config = school_manager.get_school_config(school_id)
+                            if school_config:
+                                tour_slots = school_config.get("tour_slots", ["10:00", "13:00", "15:00"])
+                            else:
+                                logger.warning(f"No school config found for {school_id}, using default slots")
+                                tour_slots = ["10:00", "13:00", "15:00"]
+                        else:
+                            # Default tour slots if no school_id provided
+                            tour_slots = ["10:00", "13:00", "15:00"]
+                        
+                        for slot_time in tour_slots:
+                            # Create datetime for this tour slot
+                            slot_start = datetime.strptime(f"{sg_date} {slot_time}", "%Y-%m-%d %H:%M")
+                            slot_start = singapore_tz.localize(slot_start)
+                            slot_end = slot_start + timedelta(hours=1)  # Tours are 1 hour
+                            
+                            # Check if activity overlaps with this tour slot
+                            # Overlap occurs if: activity_start < slot_end AND slot_start < activity_end
+                            if activity_start < slot_end and slot_start < activity_end:
+                                slot_key = f"{sg_date}_{slot_time}"
+                                booked.add(slot_key)
+                                logger.info(f"Blocking slot {slot_key} due to overlapping activity: {activity.subject} ({sg_time} for {duration_hours:.1f}h)")
             
             return booked
             
@@ -190,6 +234,56 @@ async def create_tour_activity(
         )
 
 
+async def cancel_tour_activity(
+    activity_id: int,
+    reason: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Cancel an existing tour activity in Pipedrive.
+    
+    Args:
+        activity_id: Activity ID to cancel
+        reason: Optional cancellation reason
+        
+    Returns:
+        Dict with success status
+    """
+    try:
+        api_v2_url = settings.PIPEDRIVE_APIV2_URL
+        api_key = settings.PIPEDRIVE_API_KEY
+        
+        url = f"{api_v2_url}/api/v2/activities/{activity_id}?api_token={api_key}"
+        
+        # Mark as done/cancelled
+        payload = {
+            "done": True,
+            "note": f"Tour cancelled. {reason if reason else 'No reason provided'}"
+        }
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.patch(url, json=payload)
+            if response.status_code not in [200, 201]:
+                logger.error(f"Failed to cancel tour activity: {response.text}")
+                return {
+                    "status": "error",
+                    "error": f"Failed to cancel tour: {response.status_code}"
+                }
+            
+            logger.info(f"Cancelled tour activity {activity_id}")
+            
+            return {
+                "status": "success",
+                "message": "Tour cancelled successfully"
+            }
+            
+    except Exception as e:
+        logger.error(f"Error cancelling tour activity: {e}")
+        return {
+            "status": "error",
+            "error": str(e)
+        }
+
+
 async def reschedule_tour_activity(
     activity_id: int,
     tour_date: str,
@@ -232,7 +326,7 @@ async def reschedule_tour_activity(
             subject=subject
         )
         
-        api_v2_url = settings.PIPEDRIVE_API_V2_URL
+        api_v2_url = settings.PIPEDRIVE_APIV2_URL
         api_key = settings.PIPEDRIVE_API_KEY
         
         url = f"{api_v2_url}/api/v2/activities/{activity_id}?api_token={api_key}"
@@ -318,12 +412,14 @@ async def create_or_get_person(
         Person ID if successful, None if failed
     """
     try:
+        # Creating person in Pipedrive
         # For now, always create new (in production, would check for existing first)
         request = CreatePersonRequest(
             name=name,
             phones=[phone] if phone else None,
             emails=[email] if email else None
         )
+        # Request prepared with validated data
         
         api_v2_url = settings.PIPEDRIVE_APIV2_URL
         api_key = settings.PIPEDRIVE_API_KEY
@@ -385,26 +481,33 @@ async def create_enrollment_deal(
         pipeline_id = 1  # Default pipeline
         stage_id = 1  # "Lead In" stage
         
-        # Calculate child level if we have the data
+        # Calculate child level if we have valid data
         child_level = None
-        if child_dob and enrollment_date:
+        if child_dob and enrollment_date and enrollment_date != "Unknown":
             child_level = calculate_child_level(child_dob, enrollment_date)
         
         # Format deal title
         title = f"{parent_name} - {child_name}"
         
-        # Prepare custom fields
-        custom_fields = {}
-        if child_name:
-            custom_fields["child_name"] = child_name
-        if child_dob:
-            custom_fields["child_dob"] = child_dob
-        if child_level:
-            custom_fields["child_level"] = child_level
-        if enrollment_date:
-            custom_fields["preferred_enrollment"] = enrollment_date
+        # Get custom field IDs from school config
+        from config import school_manager
+        school_config = school_manager.get_school_config(str(school_id))
+        field_ids = school_config.get("pipedrive", {}).get("custom_fields", {})
         
-        # Create the deal
+        # Map custom fields using the configured field IDs
+        custom_fields = {}
+        if child_name and field_ids.get("child_name"):
+            custom_fields[field_ids["child_name"]] = child_name
+        if child_dob and field_ids.get("child_dob"):
+            custom_fields[field_ids["child_dob"]] = child_dob
+        if enrollment_date and enrollment_date != "Unknown" and field_ids.get("preferred_start_date"):
+            custom_fields[field_ids["preferred_start_date"]] = enrollment_date
+        
+        # Include level in title if calculated
+        if child_level:
+            title = f"{parent_name} - {child_name} ({child_level})"
+        
+        # Create the deal with proper custom fields
         request = CreateDealRequest(
             title=title,
             person_id=person_id,
@@ -442,6 +545,62 @@ async def create_enrollment_deal(
             
     except Exception as e:
         logger.error(f"Error creating enrollment deal: {e}")
+        return {
+            "status": "error",
+            "error": str(e)
+        }
+
+
+async def add_note_to_deal(
+    deal_id: int,
+    content: str,
+    school_id: str
+) -> Dict[str, Any]:
+    """
+    Add a note to a Pipedrive deal.
+    
+    Args:
+        deal_id: Pipedrive deal ID
+        content: Note content
+        school_id: School ID for configuration
+        
+    Returns:
+        Dict with success status and note ID
+    """
+    try:
+        api_url = settings.PIPEDRIVE_API_URL
+        api_key = settings.PIPEDRIVE_API_KEY
+        
+        url = f"{api_url}/notes?api_token={api_key}"
+        
+        payload = {
+            "content": content,
+            "deal_id": deal_id,
+            "pinned_to_deal_flag": True  # Pin to top of deal
+        }
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.post(url, json=payload)
+            if response.status_code not in [200, 201]:
+                logger.error(f"Failed to add note to deal: {response.text}")
+                return {
+                    "status": "error",
+                    "error": f"API error: {response.status_code}"
+                }
+            
+            data = response.json()
+            note_data = data.get("data", {})
+            
+            logger.info(f"Added note {note_data.get('id')} to deal {deal_id}")
+            
+            return {
+                "status": "success",
+                "note_id": note_data.get("id"),
+                "message": "Note added successfully"
+            }
+            
+    except Exception as e:
+        logger.error(f"Error adding note to deal: {e}")
         return {
             "status": "error",
             "error": str(e)

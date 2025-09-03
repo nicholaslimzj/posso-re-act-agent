@@ -12,6 +12,15 @@ from config import settings, school_manager
 from context import context_loader, redis_manager, FullContext
 from agents import ReActAgent
 
+try:
+    from langsmith import Client as LangSmithClient
+    from langsmith.run_helpers import traceable
+    langsmith_client = LangSmithClient()
+    LANGSMITH_ENABLED = True
+except ImportError:
+    LANGSMITH_ENABLED = False
+    logger.warning("LangSmith not installed - error reporting disabled")
+
 
 class MessageHandler:
     """Handles incoming messages with ReAct processing and concurrency management"""
@@ -94,9 +103,9 @@ class MessageHandler:
             # Generate unique lock ID for this processing attempt
             lock_id = f"handler_{uuid.uuid4().hex[:8]}"
             
-            # Try to acquire session lock
+            # Try to acquire session lock (2 minute timeout)
             lock_acquired = self.redis_manager.acquire_session_lock(
-                inbox_id, contact_id, lock_id, timeout_seconds=300
+                inbox_id, contact_id, lock_id, timeout_seconds=120
             )
             
             if not lock_acquired:
@@ -159,6 +168,20 @@ class MessageHandler:
                     "session_id": result.get("session_id", f"session_{uuid.uuid4().hex[:8]}")
                 }
                 
+            except Exception as processing_error:
+                # Report to LangSmith before cleanup
+                self._report_error_to_langsmith(
+                    error=processing_error,
+                    context={
+                        "inbox_id": inbox_id,
+                        "contact_id": contact_id,
+                        "message": message_content[:100] if message_content else None,
+                        "stage": "message_processing"
+                    }
+                )
+                # Re-raise to be caught by outer except
+                raise
+                
             finally:
                 # Clean up before releasing lock
                 try:
@@ -185,6 +208,36 @@ class MessageHandler:
                 "error": str(e),
                 "response": "I encountered an error processing your message. Please try again."
             }
+    
+    def _report_error_to_langsmith(self, error: Exception, context: Dict[str, Any]):
+        """Report error to LangSmith for tracking"""
+        try:
+            if LANGSMITH_ENABLED and settings.LANGCHAIN_TRACING_V2 == "true":
+                # Use LangChain's callback to report the error
+                # This will show up in the current trace as an error
+                from langchain.callbacks import get_openai_callback
+                from langchain_core.tracers import LangChainTracer
+                
+                import traceback
+                error_info = {
+                    "error_type": type(error).__name__,
+                    "error_message": str(error),
+                    "traceback": traceback.format_exc(),
+                    "context": context
+                }
+                
+                # Log the error which will be picked up by the active trace
+                logger.error(f"ReAct Agent Error: {error_info}")
+                
+                # If we want to be more explicit, we can use the tracer directly
+                tracer = LangChainTracer()
+                if tracer:
+                    # This will mark the current run as failed
+                    tracer.on_chain_error(error, metadata=error_info)
+                    
+        except Exception as e:
+            # Don't let LangSmith errors break the flow
+            logger.warning(f"Failed to report to LangSmith: {e}")
     
     def _process_with_react(
         self,

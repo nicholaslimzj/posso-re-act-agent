@@ -20,7 +20,7 @@ class Settings:
     
     # ReAct Agent Configuration
     MAX_REASONING_CYCLES: int = 10
-    SESSION_LOCK_TIMEOUT: int = 300  # 5 minutes
+    SESSION_LOCK_TIMEOUT: int = 120  # 2 minutes
     
     # School Configuration
     DEFAULT_SCHOOL_ID: str = "tampines"

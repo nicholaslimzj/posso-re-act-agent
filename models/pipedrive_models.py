@@ -14,14 +14,15 @@ from loguru import logger
 class CreatePersonRequest(BaseModel):
     """Request model for creating a person in Pipedrive"""
     name: str
-    phones: Optional[List[Dict[str, str]]] = None
-    emails: Optional[List[Dict[str, str]]] = None
+    phones: Optional[List[Dict[str, Any]]] = None  # Changed to Any to allow mixed types
+    emails: Optional[List[Dict[str, Any]]] = None  # Changed to Any to allow mixed types
     
     @validator('phones', pre=True)
     def format_phones(cls, v, values):
         """Ensure phones are in correct format"""
         if v and isinstance(v[0], str):
             # Convert simple string to proper format
+            # primary is boolean, label is string
             return [{"value": v[0], "primary": True, "label": "mobile"}]
         return v
     
@@ -30,6 +31,7 @@ class CreatePersonRequest(BaseModel):
         """Ensure emails are in correct format"""
         if v and isinstance(v[0], str):
             # Convert simple string to proper format
+            # primary is boolean, label is string
             return [{"value": v[0], "primary": True, "label": "main"}]
         return v
 

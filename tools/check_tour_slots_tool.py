@@ -8,21 +8,19 @@ from loguru import logger
 import pytz
 import asyncio
 
-from config.school_manager import SchoolManager
 from integrations.pipedrive import get_blocked_slots
+from context.models import RuntimeContext
 
 
 def check_tour_slots(
-    inbox_id: int,
-    contact_id: str,
+    runtime_context: RuntimeContext,
     preferences: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
     """
     Check available tour slots based on preferences and existing bookings.
     
     Args:
-        inbox_id: Chatwoot inbox ID (used to get school config)
-        contact_id: Contact ID (for context)
+        runtime_context: Runtime context containing school config and identifiers
         preferences: Optional dict with:
             - date: Specific date (YYYY-MM-DD)
             - day_of_week: Day name (Monday, Tuesday, etc.)
@@ -33,9 +31,8 @@ def check_tour_slots(
         Dictionary with available slots organized by date
     """
     try:
-        # Get school configuration
-        school_manager = SchoolManager()
-        school_config = school_manager.get_school_config(str(inbox_id))
+        # Get school configuration from runtime context
+        school_config = runtime_context.school_config
         if not school_config:
             # Fallback to default
             school_config = {
@@ -45,6 +42,10 @@ def check_tour_slots(
         
         tour_slots = school_config.get("tour_slots", ["10:00", "13:00", "15:00"])
         working_days = school_config.get("working_days", [1, 2, 3, 4, 5])
+        
+        # Get identifiers from runtime context
+        school_id = runtime_context.school_id
+        inbox_id = runtime_context.inbox_id
         
         # Determine the reference date based on preferences
         reference_date = _determine_reference_date(preferences)
@@ -58,19 +59,19 @@ def check_tour_slots(
         # Get blocked slots from Pipedrive (all activities, not just tours)
         blocked_slots = asyncio.run(get_blocked_slots(
             start_date.strftime("%Y-%m-%d"),
-            end_date.strftime("%Y-%m-%d")
+            end_date.strftime("%Y-%m-%d"),
+            school_id=school_id
         ))
         
-        logger.debug(f"Checking availability from {start_date} to {end_date}")
-        logger.debug(f"Found {len(blocked_slots)} blocked slots: {blocked_slots}")
-        logger.debug(f"Tour slots to check: {tour_slots}")
-        logger.debug(f"Working days: {working_days}")
+        # Checking availability for the date range
+        if blocked_slots:
+            logger.info(f"Found {len(blocked_slots)} blocked slots from {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}")
         
         # Build availability map
         availability = {}
         singapore_tz = pytz.timezone('Asia/Singapore')
         today = datetime.now(singapore_tz).date()
-        logger.debug(f"Today's date: {today}")
+        # Skip past dates and today
         
         current_date = start_date
         while current_date <= end_date:
@@ -91,7 +92,7 @@ def check_tour_slots(
             # Check if entire day is blocked
             whole_day_key = f"{date_str}_WHOLE_DAY"
             if whole_day_key in blocked_slots:
-                logger.debug(f"Entire day {date_str} is blocked")
+                # Entire day is blocked
                 current_date += timedelta(days=1)
                 continue
             
@@ -100,12 +101,12 @@ def check_tour_slots(
             for slot_time in tour_slots:
                 # Check if slot matches time preference
                 if not _matches_time_preference(slot_time, preferences.get("time_preference") if preferences else None):
-                    logger.debug(f"  Slot {slot_time} on {date_str} doesn't match time preference")
+                    continue  # Slot doesn't match time preference
                     continue
                 
                 # Check if slot is already blocked
                 slot_key = f"{date_str}_{slot_time}"
-                logger.debug(f"  Checking slot key: {slot_key} - Blocked: {slot_key in blocked_slots}")
+                # Check if slot is blocked
                 if slot_key not in blocked_slots:
                     # Format time for display
                     hour = int(slot_time.split(":")[0])
@@ -267,3 +268,38 @@ def _matches_time_preference(slot_time: str, preference: Optional[str]) -> bool:
         return slot_time == preference
     
     return True
+
+
+def check_tour_slots_with_context(
+    inbox_id: int,
+    contact_id: str,
+    preferences: Optional[Dict[str, Any]] = None
+) -> Dict[str, Any]:
+    """
+    Backward-compatible wrapper that creates runtime context from IDs.
+    This is used by the agent until we refactor it to pass context directly.
+    
+    Args:
+        inbox_id: Chatwoot inbox ID
+        contact_id: Contact ID
+        preferences: Optional preferences dict
+    
+    Returns:
+        Dictionary with available slots
+    """
+    from config.school_manager import SchoolManager
+    
+    # Create a minimal runtime context
+    school_manager = SchoolManager()
+    school_config = school_manager.get_school_config(str(inbox_id))
+    
+    # Create RuntimeContext with required fields
+    runtime_context = RuntimeContext(
+        conversation_id="",  # Not needed for this tool
+        inbox_id=inbox_id,
+        school_id=str(inbox_id),  # Using inbox_id as school_id
+        school_config=school_config or {}
+    )
+    
+    # Call the refactored function
+    return check_tour_slots(runtime_context, preferences)

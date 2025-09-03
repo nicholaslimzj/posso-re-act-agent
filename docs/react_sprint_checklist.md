@@ -158,10 +158,30 @@ REDIS_URL=redis://localhost:6379
 - [x] **Proper concurrency handling** with Redis locks and message queuing
 
 ### Still TODO:
-- [ ] **Implement booking tools** (`check_availability`, `book_tour`, `request_callback`)
-- [ ] **Format Chatwoot conversation history** properly for agent
+- [x] **Implement booking tools** (`check_availability`, `book_tour`, `request_callback`) ✅ DONE
+- [x] **Format Chatwoot conversation history** properly for agent ✅ DONE with timestamps
 - [ ] **Test end-to-end correction flow** with real messages
-- [ ] **Add Pipedrive integration** for deal creation/updates
+- [x] **Add Pipedrive integration** for deal creation/updates ✅ DONE with custom fields
+
+### Architecture Refactoring TODO:
+- [ ] **Refactor school config access** - Pass school_config through parameters instead of modules directly accessing school_manager
+  - Currently modules like `pipedrive.py` directly import and use school_manager
+  - Should be passed as parameter from runtime context for consistency
+  - Prevents potential config mismatches and improves testability
+
+### Context Cleanup TODO:
+- [ ] **Remove unused context fields** - Clean up context models to only include what's actually used
+  - Remove fields that were planned but never implemented
+  - Consolidate duplicate or overlapping fields
+  
+- [ ] **Refactor child_age field** - Remove child_age from PersistentContext
+  - Age should be calculated dynamically from child_dob when needed
+  - Storing age creates data staleness issues
+  
+- [ ] **Rename enrollment date field** - Change `preferred_enrollment_date` to `child_preferred_enrollment_date`
+  - Makes it clear this is child-specific information
+  - Consistent with other child fields naming pattern
+  - This is the actual value we ask parents for (not calculated age)
 
 ## Ready for Hours 4-6: Real Booking Tools! 🚀
 

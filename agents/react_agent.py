@@ -78,8 +78,10 @@ class ReActAgent:
     def _create_context_aware_tools(self, inbox_id: int, contact_id: str) -> List[BaseTool]:
         """Create tools that have access to inbox_id and contact_id"""
         from tools.context_tools import update_contact_info as _update_contact
-        from tools.check_tour_slots_tool import check_tour_slots as _check_slots
+        from tools.check_tour_slots_tool import check_tour_slots_with_context as _check_slots
         from tools.book_tour_tool import book_or_reschedule_tour as _book_tour
+        from tools.callback_tool import request_callback as _request_callback
+        from tools.manage_tour_tool import manage_existing_tour as _manage_tour
         
         @tool
         def update_contact_info(
@@ -158,7 +160,59 @@ class ReActAgent:
             
             return result
         
-        return [update_contact_info, check_tour_availability, book_tour]
+        @tool
+        def request_callback(
+            callback_preference: str = "anytime",
+            reason: str = None
+        ) -> dict:
+            """
+            Request a callback from the school - intelligently handles data collection.
+            This tool will guide you through collecting required information.
+            Args:
+                callback_preference: "morning", "afternoon", or "anytime" (default)
+                reason: Optional reason for the callback
+            Returns:
+                Either callback confirmation OR guidance on what information to collect next
+            """
+            result = _request_callback(
+                inbox_id, contact_id,
+                callback_preference=callback_preference,
+                reason=reason
+            )
+            
+            # Add LLM instructions based on result
+            if result.get("status") == "need_info":
+                if result.get("next_action") == "ask_user":
+                    result["llm_instruction"] = f"Ask the user for: {result.get('question')}"
+            
+            return result
+        
+        @tool
+        def manage_tour(
+            action: str,
+            new_date: str = None,
+            new_time: str = None,
+            reason: str = None
+        ) -> dict:
+            """
+            Manage an existing tour booking - reschedule or cancel.
+            Args:
+                action: "reschedule" or "cancel"
+                new_date: For reschedule - new date in YYYY-MM-DD format
+                new_time: For reschedule - new time in HH:MM format (e.g., "10:00", "13:00")
+                reason: For cancel - optional reason for cancellation
+            Returns:
+                Confirmation of the action taken
+            """
+            return _manage_tour(
+                inbox_id, contact_id,
+                action=action,
+                new_date=new_date,
+                new_time=new_time,
+                reason=reason
+            )
+        
+        return [update_contact_info, check_tour_availability, book_tour, request_callback, manage_tour]
     
     def _build_graph(self) -> StateGraph:
         """Build the ReAct reasoning graph"""
@@ -310,9 +364,9 @@ class ReActAgent:
             Dict with response and metadata
         """
         try:
-            logger.debug(f"ReAct agent processing message with history: {bool(chatwoot_history)}")
+            # Processing message with optional conversation history
             if chatwoot_history:
-                logger.debug(f"History length: {len(chatwoot_history)} chars")
+                logger.info(f"Processing with conversation history ({len(chatwoot_history)} chars)")
             
             # Update tools with context-aware versions if we have inbox_id and contact_id
             if inbox_id and contact_id:
@@ -415,7 +469,20 @@ class ReActAgent:
             "   - The tool tracks progress (e.g., '2/4 required fields collected')",
             "   - Tour times are typically 10:00, 13:00, or 15:00",
             "",
-            "4. **update_contact_info**: Update parent or child information:",
+            "4. **request_callback**: Request a callback from the school:",
+            "   - Use when parent explicitly asks for a callback or to speak with someone",
+            "   - This tool intelligently guides you through data collection (similar to booking)",
+            "   - It will collect parent info, child info, then create callback request",
+            "   - Specify callback_preference: 'morning', 'afternoon', or 'anytime'",
+            "   - Creates a note in Pipedrive for the team to follow up",
+            "",
+            "5. **manage_tour**: Reschedule or cancel an existing tour:",
+            "   - Use when parent wants to change or cancel their booked tour",
+            "   - action='reschedule': Requires new_date and new_time",
+            "   - action='cancel': Optional reason for cancellation",
+            "   - Will update Pipedrive and add notes about the change",
+            "",
+            "6. **update_contact_info**: Update parent or child information:",
             "   - update_type='parent': Update parent's preferred contact details",
             "     * Preferred name, email, or phone (separate from WhatsApp)",
             "   - update_type='child': Update SAME child's information",
@@ -481,12 +548,13 @@ class ReActAgent:
         
         # Add conversation history if available
         if chatwoot_history:
-            logger.debug(f"Adding conversation history to prompt: {len(chatwoot_history)} chars")
+            # Adding conversation history to system prompt
             prompt_parts.append("\n## Previous Conversation:")
             prompt_parts.append(chatwoot_history)
             prompt_parts.append("---End of conversation history---")
             prompt_parts.append("\nNow respond to the user's current message.")
         else:
-            logger.debug("No conversation history available for this message")
+            # No conversation history available
+            pass
         
         return "\n".join(prompt_parts)
