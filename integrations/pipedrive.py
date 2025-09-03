@@ -8,6 +8,84 @@ from loguru import logger
 import httpx
 
 from config import settings
+
+
+def format_deal_title(
+    parent_name: str,
+    child_level: Optional[str] = None,
+    enrollment_date: Optional[str] = None
+) -> str:
+    """
+    Format deal title consistently: "Parent Name (Level EnrollmentMonth)"
+    Examples:
+    - "Nicholas Lim (N2 Sep 25)" - full info
+    - "Nicholas Lim (N2)" - no enrollment date
+    - "Nicholas Lim" - minimal info
+    """
+    title = parent_name
+    
+    if child_level or enrollment_date:
+        parts = []
+        if child_level:
+            parts.append(child_level)
+        if enrollment_date:
+            try:
+                # Parse enrollment date and format as "Sep 25"
+                date = datetime.strptime(enrollment_date, "%Y-%m-%d")
+                parts.append(date.strftime("%b %y"))
+            except:
+                pass  # Skip if date format is invalid
+        
+        if parts:
+            title += f" ({' '.join(parts)})"
+    
+    return title
+
+
+def format_activity_subject(
+    parent_name: str,
+    child_name: Optional[str] = None,
+    child_dob: Optional[str] = None,
+    enrollment_date: Optional[str] = None
+) -> str:
+    """
+    Format activity subject consistently: "Parent (Child) - DOB - EnrollmentMonth"
+    Examples:
+    - "Nicholas Lim (Becky) - 02/02/21 - Jan 26" - full info
+    - "Nicholas Lim (Becky) - Jan 26" - no DOB
+    - "Nicholas Lim - Jan 26" - no child name
+    - "Nicholas Lim" - minimal info
+    """
+    subject = parent_name
+    
+    # Add child name if available
+    if child_name:
+        subject += f" ({child_name})"
+    
+    # Build the date parts
+    date_parts = []
+    
+    if child_dob:
+        try:
+            # Format DOB as DD/MM/YY
+            dob = datetime.strptime(child_dob, "%Y-%m-%d")
+            date_parts.append(dob.strftime("%d/%m/%y"))
+        except:
+            pass  # Skip if format is invalid
+    
+    if enrollment_date:
+        try:
+            # Format enrollment as "Jan 26"
+            enroll = datetime.strptime(enrollment_date, "%Y-%m-%d")
+            date_parts.append(enroll.strftime("%b %y"))
+        except:
+            pass  # Skip if format is invalid
+    
+    # Add date parts if any
+    if date_parts:
+        subject += " - " + " - ".join(date_parts)
+    
+    return subject
 from models.pipedrive_models import (
     PipedriveActivity,
     PipedriveListResponse,
@@ -149,7 +227,10 @@ async def create_tour_activity(
     deal_id: int,
     tour_date: str,
     tour_time: str,
+    parent_name: Optional[str] = None,
     child_name: Optional[str] = None,
+    child_dob: Optional[str] = None,
+    enrollment_date: Optional[str] = None,
     child_level: Optional[str] = None
 ) -> TourBookingResponse:
     """
@@ -166,7 +247,7 @@ async def create_tour_activity(
         TourBookingResponse with activity details or error
     """
     try:
-        # Create booking request model
+        # Create booking request model for UTC conversion
         booking = TourBookingRequest(
             deal_id=deal_id,
             tour_date=tour_date,
@@ -177,7 +258,14 @@ async def create_tour_activity(
         
         # Get UTC datetime
         utc_date, utc_time = booking.get_utc_datetime()
-        subject = booking.get_subject()
+        
+        # Use standardized format for subject
+        subject = format_activity_subject(
+            parent_name=parent_name or "Parent",
+            child_name=child_name,
+            child_dob=child_dob,
+            enrollment_date=enrollment_date
+        )
         
         # Create activity request
         activity_request = CreateActivityRequest(
@@ -486,8 +574,8 @@ async def create_enrollment_deal(
         if child_dob and enrollment_date and enrollment_date != "Unknown":
             child_level = calculate_child_level(child_dob, enrollment_date)
         
-        # Format deal title
-        title = f"{parent_name} - {child_name}"
+        # Format deal title using standard format
+        title = format_deal_title(parent_name, child_level, enrollment_date)
         
         # Get custom field IDs from school config
         from config import school_manager
@@ -502,10 +590,6 @@ async def create_enrollment_deal(
             custom_fields[field_ids["child_dob"]] = child_dob
         if enrollment_date and enrollment_date != "Unknown" and field_ids.get("preferred_start_date"):
             custom_fields[field_ids["preferred_start_date"]] = enrollment_date
-        
-        # Include level in title if calculated
-        if child_level:
-            title = f"{parent_name} - {child_name} ({child_level})"
         
         # Create the deal with proper custom fields
         request = CreateDealRequest(

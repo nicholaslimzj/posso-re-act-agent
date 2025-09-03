@@ -7,14 +7,13 @@ from typing import Dict, Any, Optional, List
 from datetime import datetime
 from loguru import logger
 
-from context import redis_manager
+from context.models import FullContext, PersistentContext
 from integrations.pipedrive import create_enrollment_deal, add_note_to_deal
 from tools.shared_workflows import analyze_data_collection_requirements
 
 
 def request_callback(
-    inbox_id: int,
-    contact_id: str,
+    context: FullContext,
     callback_preference: str = "anytime",  # "morning", "afternoon", "anytime"
     reason: Optional[str] = None,
     confirmed_fields: List[str] = None
@@ -29,8 +28,7 @@ def request_callback(
     4. Update context with callback request status
     
     Args:
-        inbox_id: Chatwoot inbox ID
-        contact_id: Contact ID from Chatwoot
+        context: Full context containing runtime and persistent data
         callback_preference: When they prefer to be called
         reason: Optional reason for the callback
         confirmed_fields: Fields already confirmed in this session
@@ -39,17 +37,13 @@ def request_callback(
         Either callback confirmation OR guidance on what information to collect next
     """
     try:
-        logger.info(f"request_callback called for {inbox_id}_{contact_id}")
-        logger.info(f"  Preference: {callback_preference}, Reason: {reason}")
+        # Extract what we need from context
+        persistent_context = context.persistent
+        runtime_context = context.runtime
+        school_id = runtime_context.school_id
         
-        # Get persistent context
-        persistent_context = redis_manager.get_persistent_context(inbox_id, contact_id)
-        if not persistent_context:
-            from context import PersistentContext
-            persistent_context = PersistentContext()
-            logger.warning(f"No persistent context found for {inbox_id}_{contact_id}, using defaults")
-        else:
-            logger.info(f"Loaded persistent context with {len(persistent_context.model_dump())} fields")
+        logger.info(f"request_callback called for school {school_id}")
+        logger.info(f"  Preference: {callback_preference}, Reason: {reason}")
         
         confirmed_fields = confirmed_fields or []
         
@@ -74,14 +68,14 @@ def request_callback(
                     parent_email=persistent_context.parent_preferred_email,
                     child_dob=persistent_context.child_dob,
                     enrollment_date=persistent_context.preferred_enrollment_date,
-                    school_id=str(inbox_id)  # Use inbox_id as school_id
+                    school_id=school_id
                 ))
                 
                 if deal_result.get("status") == "success":
                     # Save deal ID to context
                     persistent_context.pipedrive_deal_id = deal_result["deal_id"]
                     persistent_context.pipedrive_person_id = deal_result["person_id"]
-                    redis_manager.save_persistent_context(inbox_id, contact_id, persistent_context)
+                    # Context will be saved by the caller
                     logger.info(f"Created Pipedrive deal {deal_result['deal_id']} for callback")
                     
                     # Now retry the analysis with the deal created
@@ -150,7 +144,7 @@ def request_callback(
         result = asyncio.run(add_note_to_deal(
             deal_id=deal_id,
             content=note_content,
-            school_id=str(inbox_id)
+            school_id=school_id
         ))
         
         if result.get("status") == "success":
@@ -158,7 +152,7 @@ def request_callback(
             persistent_context.callback_requested = True
             persistent_context.callback_preference = callback_preference
             persistent_context.callback_requested_at = datetime.utcnow().isoformat()
-            redis_manager.save_persistent_context(inbox_id, contact_id, persistent_context)
+            # Context will be saved by the caller
             
             # Format response message
             preference_text = {
@@ -188,3 +182,6 @@ def request_callback(
             "status": "error",
             "error": str(e)
         }
+
+
+# Backward compatibility wrapper removed - use request_callback directly

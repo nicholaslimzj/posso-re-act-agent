@@ -75,16 +75,16 @@ class ReActAgent:
         
         return [get_faq_answer_tool]
     
-    def _create_context_aware_tools(self, inbox_id: int, contact_id: str) -> List[BaseTool]:
-        """Create tools that have access to inbox_id and contact_id"""
-        from tools.context_tools import update_contact_info as _update_contact
-        from tools.check_tour_slots_tool import check_tour_slots_with_context as _check_slots
-        from tools.book_tour_tool import book_or_reschedule_tour as _book_tour
-        from tools.callback_tool import request_callback as _request_callback
-        from tools.manage_tour_tool import manage_existing_tour as _manage_tour
+    def _create_context_aware_tools(self, context) -> List[BaseTool]:
+        """Create tools that have access to the full context"""
+        from tools.context_tools import update_contact_info
+        from tools.check_tour_slots_tool import check_tour_slots
+        from tools.book_tour_tool import book_or_reschedule_tour
+        from tools.callback_tool import request_callback
+        from tools.manage_tour_tool import manage_existing_tour
         
         @tool
-        def update_contact_info(
+        def update_contact_info_tool(
             update_type: str,
             fields: dict
         ) -> dict:
@@ -97,18 +97,19 @@ class ReActAgent:
                   - "new_child": Switch to tracking a DIFFERENT child (WARNING: resets Pipedrive deal!)
                 fields: Dictionary of fields to update
                   Parent fields: parent_preferred_name, parent_preferred_email, parent_preferred_phone
-                  Child fields: child_name, child_dob, child_age, preferred_enrollment_date
+                  Child fields: child_name, child_dob, preferred_enrollment_date
             Returns:
                 {"status": "updated", "update_type": ..., "updated_fields": {...}}
             """
-            return _update_contact(
-                inbox_id, contact_id,
+            # Now uses pure function pattern - modifies context in-place
+            return update_contact_info(
+                context,
                 update_type=update_type,
                 fields=fields
             )
         
         @tool
-        def check_tour_availability(
+        def check_tour_availability_tool(
             preferences: dict = None
         ) -> dict:
             """
@@ -122,10 +123,10 @@ class ReActAgent:
             Returns:
                 Dictionary with available slots organized by date
             """
-            return _check_slots(inbox_id, contact_id, preferences)
+            return check_tour_slots(context.runtime, preferences)
         
         @tool
-        def book_tour(
+        def book_tour_tool(
             tour_date: str,
             tour_time: str,
             action: str = "book"
@@ -141,8 +142,8 @@ class ReActAgent:
                 Either booking confirmation OR guidance on what information to collect next
             """
             # The tool now handles all the workflow logic internally
-            result = _book_tour(
-                inbox_id, contact_id,
+            result = book_or_reschedule_tour(
+                context,
                 action=action,
                 tour_date=tour_date,
                 tour_time=tour_time
@@ -161,7 +162,7 @@ class ReActAgent:
             return result
         
         @tool
-        def request_callback(
+        def request_callback_tool(
             callback_preference: str = "anytime",
             reason: str = None
         ) -> dict:
@@ -174,8 +175,8 @@ class ReActAgent:
             Returns:
                 Either callback confirmation OR guidance on what information to collect next
             """
-            result = _request_callback(
-                inbox_id, contact_id,
+            result = request_callback(
+                context,
                 callback_preference=callback_preference,
                 reason=reason
             )
@@ -188,7 +189,7 @@ class ReActAgent:
             return result
         
         @tool
-        def manage_tour(
+        def manage_tour_tool(
             action: str,
             new_date: str = None,
             new_time: str = None,
@@ -204,15 +205,15 @@ class ReActAgent:
             Returns:
                 Confirmation of the action taken
             """
-            return _manage_tour(
-                inbox_id, contact_id,
+            return manage_existing_tour(
+                context,
                 action=action,
                 new_date=new_date,
                 new_time=new_time,
                 reason=reason
             )
         
-        return [update_contact_info, check_tour_availability, book_tour, request_callback, manage_tour]
+        return [update_contact_info_tool, check_tour_availability_tool, book_tour_tool, request_callback_tool, manage_tour_tool]
     
     def _build_graph(self) -> StateGraph:
         """Build the ReAct reasoning graph"""
@@ -368,9 +369,9 @@ class ReActAgent:
             if chatwoot_history:
                 logger.info(f"Processing with conversation history ({len(chatwoot_history)} chars)")
             
-            # Update tools with context-aware versions if we have inbox_id and contact_id
-            if inbox_id and contact_id:
-                context_tools = self._create_context_aware_tools(inbox_id, contact_id)
+            # Update tools with context-aware versions if we have context
+            if context:
+                context_tools = self._create_context_aware_tools(context)
                 self.tools = self.base_tools + context_tools
                 # Rebuild graph with updated tools
                 self.graph = self._build_graph()
@@ -498,7 +499,13 @@ class ReActAgent:
             "- Update context when user provides corrections or new information",
             "- Be careful to distinguish between updating same child vs switching children",
             "- If parent mentions multiple children, ask which one to focus on",
-            "- When you see 'Unknown' for any field and the user mentions it, update immediately"
+            "- When you see 'Unknown' for any field and the user mentions it, update immediately",
+            "",
+            "## Child Information Collection:",
+            "- NEVER ask for or store child's age directly - it changes over time",
+            "- Always collect child's Date of Birth (DOB) instead - this is permanent data",
+            "- Also collect preferred enrollment date (when they want to start)",
+            "- The system calculates the appropriate program level from DOB + enrollment date"
         ]
         
         # Add current context information
@@ -527,10 +534,6 @@ class ReActAgent:
         prompt_parts.append(f"- Name: {context.persistent.child_name or 'Unknown'}")
         prompt_parts.append(f"- Date of Birth: {context.persistent.child_dob or 'Unknown'}")
         prompt_parts.append(f"- Preferred Enrollment: {context.persistent.preferred_enrollment_date or 'Unknown'}")
-        
-        # Show calculated age if we have DOB
-        if context.persistent.child_age:
-            prompt_parts.append(f"- Age: {context.persistent.child_age} years")
         
         if context.persistent.pipedrive_deal_id:
             prompt_parts.append(f"\n**Pipedrive Deal ID**: {context.persistent.pipedrive_deal_id}")

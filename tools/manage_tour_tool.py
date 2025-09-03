@@ -7,13 +7,12 @@ from typing import Dict, Any, Optional
 from datetime import datetime
 from loguru import logger
 
-from context import redis_manager
+from context.models import FullContext, PersistentContext
 from integrations.pipedrive import reschedule_tour_activity, cancel_tour_activity, add_note_to_deal, calculate_child_level
 
 
 def manage_existing_tour(
-    inbox_id: int,
-    contact_id: str,
+    context: FullContext,
     action: str,  # "reschedule" or "cancel"
     new_date: Optional[str] = None,  # For reschedule: YYYY-MM-DD
     new_time: Optional[str] = None,  # For reschedule: HH:MM
@@ -23,8 +22,7 @@ def manage_existing_tour(
     Manage an existing tour booking (reschedule or cancel).
     
     Args:
-        inbox_id: Chatwoot inbox ID
-        contact_id: Contact ID from Chatwoot
+        context: Full context containing runtime and persistent data
         action: "reschedule" or "cancel"
         new_date: New tour date for reschedule (YYYY-MM-DD)
         new_time: New tour time for reschedule (HH:MM)
@@ -34,11 +32,15 @@ def manage_existing_tour(
         Dict with action result
     """
     try:
-        logger.info(f"manage_existing_tour called for {inbox_id}_{contact_id}")
+        # Extract what we need from context
+        persistent_context = context.persistent
+        runtime_context = context.runtime
+        school_id = runtime_context.school_id
+        
+        logger.info(f"manage_existing_tour called for school {school_id}")
         logger.info(f"  Action: {action}, New date: {new_date}, New time: {new_time}")
         
-        # Get persistent context
-        persistent_context = redis_manager.get_persistent_context(inbox_id, contact_id)
+        # Check if we have persistent context
         if not persistent_context:
             return {
                 "status": "error",
@@ -68,7 +70,7 @@ def manage_existing_tour(
                 persistent_context.tour_scheduled_date = None
                 persistent_context.tour_scheduled_time = None
                 persistent_context.tour_status = "cancelled"
-                redis_manager.save_persistent_context(inbox_id, contact_id, persistent_context)
+                # Context will be saved by the caller
                 
                 # Add note to deal if exists
                 if persistent_context.pipedrive_deal_id:
@@ -81,7 +83,7 @@ def manage_existing_tour(
                     asyncio.run(add_note_to_deal(
                         deal_id=persistent_context.pipedrive_deal_id,
                         content=note_content,
-                        school_id=str(inbox_id)
+                        school_id=school_id
                     ))
                 
                 return {
@@ -133,7 +135,7 @@ def manage_existing_tour(
                 # Update context with new tour details
                 persistent_context.tour_scheduled_date = new_date
                 persistent_context.tour_scheduled_time = new_time
-                redis_manager.save_persistent_context(inbox_id, contact_id, persistent_context)
+                # Context will be saved by the caller
                 
                 # Add note to deal if exists
                 if persistent_context.pipedrive_deal_id:
@@ -147,7 +149,7 @@ def manage_existing_tour(
                     asyncio.run(add_note_to_deal(
                         deal_id=persistent_context.pipedrive_deal_id,
                         content=note_content,
-                        school_id=str(inbox_id)
+                        school_id=school_id
                     ))
                 
                 # Format display date
@@ -181,3 +183,6 @@ def manage_existing_tour(
             "status": "error",
             "error": str(e)
         }
+
+
+# Backward compatibility wrapper removed - use manage_existing_tour directly

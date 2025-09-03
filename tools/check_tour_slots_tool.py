@@ -270,36 +270,4 @@ def _matches_time_preference(slot_time: str, preference: Optional[str]) -> bool:
     return True
 
 
-def check_tour_slots_with_context(
-    inbox_id: int,
-    contact_id: str,
-    preferences: Optional[Dict[str, Any]] = None
-) -> Dict[str, Any]:
-    """
-    Backward-compatible wrapper that creates runtime context from IDs.
-    This is used by the agent until we refactor it to pass context directly.
-    
-    Args:
-        inbox_id: Chatwoot inbox ID
-        contact_id: Contact ID
-        preferences: Optional preferences dict
-    
-    Returns:
-        Dictionary with available slots
-    """
-    from config.school_manager import SchoolManager
-    
-    # Create a minimal runtime context
-    school_manager = SchoolManager()
-    school_config = school_manager.get_school_config(str(inbox_id))
-    
-    # Create RuntimeContext with required fields
-    runtime_context = RuntimeContext(
-        conversation_id="",  # Not needed for this tool
-        inbox_id=inbox_id,
-        school_id=str(inbox_id),  # Using inbox_id as school_id
-        school_config=school_config or {}
-    )
-    
-    # Call the refactored function
-    return check_tour_slots(runtime_context, preferences)
+# Backward compatibility wrapper removed - use check_tour_slots directly

@@ -15,12 +15,11 @@ from integrations.pipedrive import (
     calculate_child_level,
     create_enrollment_deal
 )
-from context import redis_manager
+from context.models import FullContext, PersistentContext
 
 
 def book_or_reschedule_tour(
-    inbox_id: int,
-    contact_id: str,
+    context: FullContext,
     action: str,  # "book" or "reschedule" 
     tour_date: str,
     tour_time: str,
@@ -36,8 +35,7 @@ def book_or_reschedule_tour(
     4. Only books when everything is ready
     
     Args:
-        inbox_id: Chatwoot inbox ID
-        contact_id: Contact ID
+        context: Full context containing runtime and persistent data
         action: "book" for new booking, "reschedule" for existing
         tour_date: Date in YYYY-MM-DD format
         tour_time: Time in HH:MM format (Singapore time)
@@ -49,17 +47,14 @@ def book_or_reschedule_tour(
         - Missing/unconfirmed data requirements with guided next steps
     """
     try:
-        logger.info(f"book_or_reschedule_tour called for {inbox_id}_{contact_id}")
-        logger.info(f"  Action: {action}, Date: {tour_date}, Time: {tour_time}")
+        # Extract what we need from context
+        persistent_context = context.persistent
+        runtime_context = context.runtime
+        inbox_id = runtime_context.inbox_id
+        school_id = runtime_context.school_id
         
-        # Get persistent context
-        persistent_context = redis_manager.get_persistent_context(inbox_id, contact_id)
-        if not persistent_context:
-            from context import PersistentContext
-            persistent_context = PersistentContext()
-            logger.warning(f"No persistent context found for {inbox_id}_{contact_id}, using defaults")
-        else:
-            logger.info(f"Loaded persistent context with {len(persistent_context.model_dump())} fields")
+        logger.info(f"book_or_reschedule_tour called for school {school_id}")
+        logger.info(f"  Action: {action}, Date: {tour_date}, Time: {tour_time}")
         
         confirmed_fields = confirmed_fields or []
         
@@ -84,14 +79,15 @@ def book_or_reschedule_tour(
                     parent_email=persistent_context.parent_preferred_email,
                     child_dob=persistent_context.child_dob,
                     enrollment_date=persistent_context.preferred_enrollment_date,
-                    school_id=str(inbox_id)  # Use inbox_id as school_id
+                    school_id=school_id
                 ))
                 
                 if deal_result.get("status") == "success":
                     # Save deal ID to context
                     persistent_context.pipedrive_deal_id = deal_result["deal_id"]
                     persistent_context.pipedrive_person_id = deal_result["person_id"]
-                    redis_manager.save_persistent_context(inbox_id, contact_id, persistent_context)
+                    # Context will be saved by the caller (agent/message_handler)
+                    # We just update the in-memory object
                     
                     # Now retry the analysis with the deal created
                     analysis = _analyze_booking_requirements(
@@ -149,7 +145,10 @@ def book_or_reschedule_tour(
                 deal_id=deal_id,
                 tour_date=tour_date,
                 tour_time=tour_time,
+                parent_name=persistent_context.parent_preferred_name,
                 child_name=persistent_context.child_name,
+                child_dob=persistent_context.child_dob,
+                enrollment_date=persistent_context.preferred_enrollment_date,
                 child_level=child_level
             ))
             
@@ -159,7 +158,7 @@ def book_or_reschedule_tour(
                 persistent_context.tour_scheduled_date = tour_date
                 persistent_context.tour_scheduled_time = tour_time
                 persistent_context.tour_booked_at = datetime.utcnow().isoformat()
-                redis_manager.save_persistent_context(inbox_id, contact_id, persistent_context)
+                # Context will be saved by the caller (agent/message_handler)
             
             return {
                 "status": result.status,
@@ -191,7 +190,7 @@ def book_or_reschedule_tour(
             if result.status == "success":
                 persistent_context.tour_scheduled_date = tour_date
                 persistent_context.tour_scheduled_time = tour_time
-                redis_manager.save_persistent_context(inbox_id, contact_id, persistent_context)
+                # Context will be saved by the caller (agent/message_handler)
             
             return {
                 "status": result.status,
@@ -365,3 +364,6 @@ def _analyze_booking_requirements(
         "stage": "complete",
         "progress": f"{total_required}/{total_required} required fields collected"
     }
+
+
+# Backward compatibility wrapper removed - use book_or_reschedule_tour directly

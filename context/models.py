@@ -30,7 +30,6 @@ class PersistentContext(BaseModel):
     # Child Information
     child_name: Optional[str] = None
     child_dob: Optional[str] = None  # YYYY-MM-DD format
-    child_age: Optional[int] = None  # Age in years
     preferred_enrollment_date: Optional[str] = None  # YYYY-MM-DD format
     
     # Pipedrive Integration
@@ -58,6 +57,7 @@ class RuntimeContext(BaseModel):
     conversation_id: str
     inbox_id: int
     school_id: str
+    contact_id: str  # Unique identifier for the contact
     
     # WhatsApp Identity
     whatsapp_name: Optional[str] = None

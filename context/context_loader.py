@@ -49,6 +49,7 @@ class ContextLoader:
                 school_id=school_id,
                 conversation_id=conversation_id,
                 inbox_id=inbox_id,
+                contact_id=contact_id,
                 whatsapp_profile=whatsapp_profile,
                 recent_messages=recent_messages
             )
@@ -65,7 +66,7 @@ class ContextLoader:
         except Exception as e:
             logger.error(f"Error loading context: {e}")
             # Return minimal context as fallback
-            return self._create_minimal_context(inbox_id, conversation_id)
+            return self._create_minimal_context(inbox_id, contact_id, conversation_id)
     
     def _load_persistent_context(
         self, 
@@ -109,6 +110,7 @@ class ContextLoader:
         school_id: str,
         conversation_id: str,
         inbox_id: int,
+        contact_id: str,
         whatsapp_profile: Optional[Dict[str, Any]] = None,
         recent_messages: Optional[list] = None
     ) -> RuntimeContext:
@@ -128,6 +130,7 @@ class ContextLoader:
                 conversation_id=conversation_id,
                 inbox_id=inbox_id,
                 school_id=school_id,
+                contact_id=contact_id,
                 whatsapp_name=whatsapp_name,
                 whatsapp_phone=whatsapp_phone,
                 messages=recent_messages or [],
@@ -142,7 +145,8 @@ class ContextLoader:
             return RuntimeContext(
                 conversation_id=conversation_id,
                 inbox_id=inbox_id,
-                school_id=school_id
+                school_id=school_id,
+                contact_id=contact_id
             )
     
     def _get_school_id_from_inbox(self, inbox_id: int) -> str:
@@ -191,7 +195,7 @@ class ContextLoader:
         # For now, return False as placeholder
         return False
     
-    def _create_minimal_context(self, inbox_id: int, conversation_id: str) -> FullContext:
+    def _create_minimal_context(self, inbox_id: int, contact_id: str, conversation_id: str) -> FullContext:
         """Create minimal context as fallback"""
         school_id = self._get_school_id_from_inbox(inbox_id)
         return FullContext(
@@ -199,7 +203,8 @@ class ContextLoader:
             runtime=RuntimeContext(
                 conversation_id=conversation_id,
                 inbox_id=inbox_id,
-                school_id=school_id
+                school_id=school_id,
+                contact_id=contact_id
             ),
             active=ActiveTaskContext()
         )
