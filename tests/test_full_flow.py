@@ -7,7 +7,7 @@ import json
 from loguru import logger
 from models.webhook_models import ChatwootWebhook
 from message_handler import message_handler
-from tools.chatwoot_history_formatter import extract_persistent_context, prepare_chatwoot_update
+from context.chatwoot_history_formatter import extract_persistent_context, prepare_chatwoot_update
 
 
 def test_webhook_processing():

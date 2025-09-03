@@ -9,7 +9,7 @@ export DEV_MODE=true
 
 # Option 1: Run with docker-compose (recommended)
 echo "Using Docker Compose for development..."
-docker-compose -f docker-compose.dev.yml up --build
+docker-compose -f docker-compose.dev.yml up
 
 # Option 2: Run locally (uncomment if not using Docker)
 # echo "Running locally..."

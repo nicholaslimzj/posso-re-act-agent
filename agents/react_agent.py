@@ -77,86 +77,88 @@ class ReActAgent:
     
     def _create_context_aware_tools(self, inbox_id: int, contact_id: str) -> List[BaseTool]:
         """Create tools that have access to inbox_id and contact_id"""
-        from tools.context_tools import (
-            update_parent_details as _update_parent,
-            update_child_details as _update_child,
-            track_new_child as _track_new
-        )
+        from tools.context_tools import update_contact_info as _update_contact
+        from tools.check_tour_slots_tool import check_tour_slots as _check_slots
+        from tools.book_tour_tool import book_or_reschedule_tour as _book_tour
         
         @tool
-        def update_parent_details(
-            parent_preferred_name: Optional[str] = None,
-            parent_preferred_email: Optional[str] = None,
-            parent_preferred_phone: Optional[str] = None
+        def update_contact_info(
+            update_type: str,
+            fields: dict
         ) -> dict:
             """
-            Update parent's preferred contact details when they provide corrections.
+            Update parent or child contact information.
             Args:
-                parent_preferred_name: Parent's preferred name
-                parent_preferred_email: Parent's preferred email  
-                parent_preferred_phone: Parent's preferred phone
+                update_type: Type of update - "parent", "child", or "new_child"
+                  - "parent": Update parent's preferred contact details
+                  - "child": Update current child's information (same child)
+                  - "new_child": Switch to tracking a DIFFERENT child (WARNING: resets Pipedrive deal!)
+                fields: Dictionary of fields to update
+                  Parent fields: parent_preferred_name, parent_preferred_email, parent_preferred_phone
+                  Child fields: child_name, child_dob, child_age, preferred_enrollment_date
             Returns:
-                {"status": "updated", "updated_fields": {...}}
+                {"status": "updated", "update_type": ..., "updated_fields": {...}}
             """
-            return _update_parent(
+            return _update_contact(
                 inbox_id, contact_id,
-                parent_preferred_name=parent_preferred_name,
-                parent_preferred_email=parent_preferred_email,
-                parent_preferred_phone=parent_preferred_phone
+                update_type=update_type,
+                fields=fields
             )
         
         @tool
-        def update_child_details(
-            child_name: Optional[str] = None,
-            child_dob: Optional[str] = None,
-            child_age: Optional[int] = None,
-            preferred_enrollment_date: Optional[str] = None
+        def check_tour_availability(
+            preferences: dict = None
         ) -> dict:
             """
-            Update current child's details (same child, just corrections/additions).
+            Check available tour slots based on preferences.
             Args:
-                child_name: Child's name
-                child_dob: Date of birth (YYYY-MM-DD format)
-                child_age: Age in years (auto-calculated if DOB provided)
-                preferred_enrollment_date: Preferred enrollment date (YYYY-MM-DD)
+                preferences: Optional dict with:
+                  - date: Specific date (YYYY-MM-DD)
+                  - day_of_week: Day name (Monday, Tuesday, etc.)
+                  - time_preference: "morning" | "afternoon" | specific time (HH:MM)
+                  - next_week: bool - if True, check next week instead of this week
             Returns:
-                {"status": "updated", "updated_fields": {...}}
+                Dictionary with available slots organized by date
             """
-            return _update_child(
-                inbox_id, contact_id,
-                child_name=child_name,
-                child_dob=child_dob,
-                child_age=child_age,
-                preferred_enrollment_date=preferred_enrollment_date
-            )
+            return _check_slots(inbox_id, contact_id, preferences)
         
         @tool
-        def track_new_child(
-            child_name: str,
-            child_dob: Optional[str] = None,
-            child_age: Optional[int] = None,
-            preferred_enrollment_date: Optional[str] = None
+        def book_tour(
+            tour_date: str,
+            tour_time: str,
+            action: str = "book"
         ) -> dict:
             """
-            Switch to tracking a DIFFERENT child. WARNING: Resets all unspecified fields and creates new Pipedrive deal.
-            Use ONLY when parent explicitly mentions a different child.
+            Book or reschedule a tour - intelligently handles data collection.
+            This tool will guide you through collecting required information.
             Args:
-                child_name: New child's name (required)
-                child_dob: New child's date of birth (YYYY-MM-DD)
-                child_age: New child's age in years
-                preferred_enrollment_date: Preferred enrollment date (YYYY-MM-DD)
+                tour_date: Date in YYYY-MM-DD format
+                tour_time: Time in HH:MM format (Singapore time) - e.g., "10:00", "13:00", "15:00"
+                action: "book" for new booking (default) or "reschedule" for existing tour
             Returns:
-                {"status": "switched", "previous_child": {...}, "new_child": {...}, "deal_reset": True}
+                Either booking confirmation OR guidance on what information to collect next
             """
-            return _track_new(
+            # The tool now handles all the workflow logic internally
+            result = _book_tour(
                 inbox_id, contact_id,
-                child_name=child_name,
-                child_dob=child_dob,
-                child_age=child_age,
-                preferred_enrollment_date=preferred_enrollment_date
+                action=action,
+                tour_date=tour_date,
+                tour_time=tour_time
             )
+            
+            # If the tool says we need info, help the LLM understand what to do
+            if result.get("status") == "need_info":
+                # Add LLM-friendly instructions
+                if result.get("next_action") == "ask_user":
+                    result["llm_instruction"] = f"Ask the user: {result.get('question', result.get('context_hint'))}"
+                elif result.get("next_action") == "confirm_data":
+                    result["llm_instruction"] = f"Confirm with user: {result.get('question')}"
+                elif result.get("next_action") == "create_deal":
+                    result["llm_instruction"] = "Call the create_pipedrive_deal tool first"
+            
+            return result
         
-        return [update_parent_details, update_child_details, track_new_child]
+        return [update_contact_info, check_tour_availability, book_tour]
     
     def _build_graph(self) -> StateGraph:
         """Build the ReAct reasoning graph"""
@@ -308,6 +310,10 @@ class ReActAgent:
             Dict with response and metadata
         """
         try:
+            logger.debug(f"ReAct agent processing message with history: {bool(chatwoot_history)}")
+            if chatwoot_history:
+                logger.debug(f"History length: {len(chatwoot_history)} chars")
+            
             # Update tools with context-aware versions if we have inbox_id and contact_id
             if inbox_id and contact_id:
                 context_tools = self._create_context_aware_tools(inbox_id, contact_id)
@@ -374,9 +380,18 @@ class ReActAgent:
     
     def _build_system_prompt(self, context: FullContext, chatwoot_history: Optional[str]) -> str:
         """Build system prompt with context"""
+        import pytz
+        from datetime import datetime
+        
+        # Get current date in Singapore time
+        singapore_tz = pytz.timezone('Asia/Singapore')
+        current_date = datetime.now(singapore_tz)
+        date_str = current_date.strftime("%A, %B %d, %Y")
+        
         prompt_parts = [
             "You are a helpful assistant for Posso International Academy.",
             "You help parents book school tours, answer questions about the school, and assist with enrollment.",
+            f"Today's date is {date_str} (Singapore time).",
             "",
             "## Available Tools:",
             "1. **get_faq_answer_tool**: Use this FIRST for any questions about:",
@@ -386,29 +401,37 @@ class ReActAgent:
             "   - Location, facilities, or general information",
             "   - Always check FAQ before providing general information",
             "",
-            "2. **update_parent_details**: Use when parent provides their contact preferences:",
-            "   - Preferred name (different from WhatsApp name)",
-            "   - Preferred email for communications",
-            "   - Preferred phone for callbacks",
-            "   - Do NOT automatically use WhatsApp profile as preferred details",
+            "2. **check_tour_availability**: Check available tour slots:",
+            "   - Use when parent asks about tour availability or dates",
+            "   - Can filter by day of week, morning/afternoon, specific dates",
+            "   - Returns next 14 days of available slots",
+            "   - Always call this before suggesting tour dates",
             "",
-            "3. **update_child_details**: Use when correcting/adding info for SAME child:",
-            "   - Fixing typos in child's name",
-            "   - Updating date of birth",
-            "   - Adding missing information",
-            "   - Changing preferred enrollment date",
+            "3. **book_tour**: Book or reschedule a tour:",
+            "   - Use after parent confirms a specific date and time",
+            "   - This tool intelligently guides you through data collection",
+            "   - It will tell you what information is missing or needs confirmation",
+            "   - Follow the tool's guidance on what to ask the user next",
+            "   - The tool tracks progress (e.g., '2/4 required fields collected')",
+            "   - Tour times are typically 10:00, 13:00, or 15:00",
             "",
-            "4. **track_new_child**: Use ONLY when parent switches to DIFFERENT child:",
-            "   - Parent says 'instead of [previous child]'",
-            "   - Parent mentions a different child by name",
-            "   - WARNING: This resets all data and creates new Pipedrive deal",
-            "   - Always confirm before using this tool",
+            "4. **update_contact_info**: Update parent or child information:",
+            "   - update_type='parent': Update parent's preferred contact details",
+            "     * Preferred name, email, or phone (separate from WhatsApp)",
+            "   - update_type='child': Update SAME child's information",
+            "     * Fix typos, update DOB, add missing info",
+            "   - update_type='new_child': Switch to DIFFERENT child",
+            "     * WARNING: Resets Pipedrive deal! Use only when explicitly switching children",
+            "     * Parent says 'instead of [previous child]' or mentions different child",
             "",
             "## Important Guidelines:",
             "- Always check FAQ first for factual questions",
-            "- Update context when user provides corrections",
+            "- Check availability before suggesting tour dates",
+            "- Update ANY 'Unknown' fields when user provides that information",
+            "- Update context when user provides corrections or new information",
             "- Be careful to distinguish between updating same child vs switching children",
-            "- If parent mentions multiple children, ask which one to focus on"
+            "- If parent mentions multiple children, ask which one to focus on",
+            "- When you see 'Unknown' for any field and the user mentions it, update immediately"
         ]
         
         # Add current context information
@@ -422,14 +445,11 @@ class ReActAgent:
             if context.active.active_task_data:
                 prompt_parts.append(f"**Collected Data**: {context.active.active_task_data}")
         
-        # Add persistent context
+        # Add persistent context - ALWAYS show key fields
         prompt_parts.append("\n**Parent Information:**")
-        if context.persistent.parent_preferred_name:
-            prompt_parts.append(f"- Preferred Name: {context.persistent.parent_preferred_name}")
-        if context.persistent.parent_preferred_email:
-            prompt_parts.append(f"- Preferred Email: {context.persistent.parent_preferred_email}")
-        if context.persistent.parent_preferred_phone:
-            prompt_parts.append(f"- Preferred Phone: {context.persistent.parent_preferred_phone}")
+        prompt_parts.append(f"- Preferred Name: {context.persistent.parent_preferred_name or 'Unknown'}")
+        prompt_parts.append(f"- Preferred Email: {context.persistent.parent_preferred_email or 'Unknown'}")
+        prompt_parts.append(f"- Preferred Phone: {context.persistent.parent_preferred_phone or 'Unknown'}")
         
         if context.runtime.whatsapp_name:
             prompt_parts.append(f"- WhatsApp Name: {context.runtime.whatsapp_name}")
@@ -437,14 +457,13 @@ class ReActAgent:
             prompt_parts.append(f"- WhatsApp Phone: {context.runtime.whatsapp_phone}")
         
         prompt_parts.append("\n**Child Information:**")
-        if context.persistent.child_name:
-            prompt_parts.append(f"- Name: {context.persistent.child_name}")
-        if context.persistent.child_dob:
-            prompt_parts.append(f"- Date of Birth: {context.persistent.child_dob}")
+        prompt_parts.append(f"- Name: {context.persistent.child_name or 'Unknown'}")
+        prompt_parts.append(f"- Date of Birth: {context.persistent.child_dob or 'Unknown'}")
+        prompt_parts.append(f"- Preferred Enrollment: {context.persistent.preferred_enrollment_date or 'Unknown'}")
+        
+        # Show calculated age if we have DOB
         if context.persistent.child_age:
             prompt_parts.append(f"- Age: {context.persistent.child_age} years")
-        if context.persistent.preferred_enrollment_date:
-            prompt_parts.append(f"- Preferred Enrollment: {context.persistent.preferred_enrollment_date}")
         
         if context.persistent.pipedrive_deal_id:
             prompt_parts.append(f"\n**Pipedrive Deal ID**: {context.persistent.pipedrive_deal_id}")
@@ -462,6 +481,12 @@ class ReActAgent:
         
         # Add conversation history if available
         if chatwoot_history:
-            prompt_parts.append(f"\n## Previous Conversation:\n{chatwoot_history}")
+            logger.debug(f"Adding conversation history to prompt: {len(chatwoot_history)} chars")
+            prompt_parts.append("\n## Previous Conversation:")
+            prompt_parts.append(chatwoot_history)
+            prompt_parts.append("---End of conversation history---")
+            prompt_parts.append("\nNow respond to the user's current message.")
+        else:
+            logger.debug("No conversation history available for this message")
         
         return "\n".join(prompt_parts)

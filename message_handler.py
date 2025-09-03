@@ -11,7 +11,6 @@ from loguru import logger
 from config import settings, school_manager
 from context import context_loader, redis_manager, FullContext
 from agents import ReActAgent
-from tools import check_unread_messages_tool, clear_unread_messages_tool
 
 
 class MessageHandler:
@@ -140,11 +139,11 @@ class MessageHandler:
                     message_content=message_content,
                     context=context,
                     inbox_id=inbox_id,
-                    contact_id=contact_id
+                    contact_id=contact_id,
+                    recent_messages=recent_messages
                 )
                 
                 # Note: Queued messages are now handled within the ReAct loop via injection
-                # self._process_queued_messages(inbox_id, contact_id, result["context"])
                 
                 # Save final context
                 self.context_loader.save_context(inbox_id, contact_id, result["context"])
@@ -192,12 +191,28 @@ class MessageHandler:
         message_content: str,
         context: FullContext,
         inbox_id: int,
-        contact_id: str
+        contact_id: str,
+        recent_messages: Optional[list] = None
     ) -> Dict[str, Any]:
         """Process message through ReAct agent"""
         try:
-            # TODO: Get Chatwoot history if needed
-            chatwoot_history = None  # This would be formatted conversation history
+            # Format Chatwoot history if available
+            chatwoot_history = None
+            if recent_messages:
+                logger.info(f"Processing {len(recent_messages)} recent messages for history")
+                from context.chatwoot_history_formatter import format_chatwoot_messages
+                # Get last 14 messages and exclude the current message
+                chatwoot_history = format_chatwoot_messages(
+                    messages=recent_messages,
+                    limit=14,
+                    exclude_last=True  # Don't include current message in history
+                )
+                if chatwoot_history:
+                    logger.info(f"Formatted {len(recent_messages)} messages into history ({len(chatwoot_history)} chars)")
+                else:
+                    logger.warning("format_chatwoot_messages returned empty history")
+            else:
+                logger.info("No recent_messages provided for history formatting")
             
             # Process with ReAct agent
             result = self.agent.process_message(
@@ -218,42 +233,5 @@ class MessageHandler:
         except Exception as e:
             logger.error(f"Error in ReAct processing: {e}")
             raise
-    
-    
-    def _process_queued_messages(self, inbox_id: int, contact_id: str, context: FullContext):
-        """Process any messages that were queued during ReAct processing"""
-        try:
-            # Check for unread messages
-            unread_result = check_unread_messages_tool(inbox_id, contact_id)
-            
-            if unread_result.get("has_unread") and unread_result.get("count", 0) > 0:
-                logger.info(f"Processing {unread_result['count']} queued messages for {inbox_id}_{contact_id}")
-                
-                # Process each queued message
-                for message in unread_result["messages"]:
-                    try:
-                        # Process through ReAct (simplified version)
-                        result = self._process_with_react(
-                            message_content=message["message"],
-                            context=context,
-                            inbox_id=inbox_id,
-                            contact_id=contact_id
-                        )
-                        
-                        # Update context with results
-                        context = result["context"]
-                        
-                        logger.debug(f"Processed queued message: {message['message'][:50]}...")
-                        
-                    except Exception as e:
-                        logger.error(f"Error processing queued message: {e}")
-                        continue
-                
-                # Clear processed messages
-                clear_unread_messages_tool(inbox_id, contact_id)
-            
-        except Exception as e:
-            logger.error(f"Error processing queued messages: {e}")
-
 # Global handler instance
 message_handler = MessageHandler()

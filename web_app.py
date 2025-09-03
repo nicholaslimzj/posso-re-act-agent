@@ -11,11 +11,13 @@ import json
 
 from models.webhook_models import ChatwootWebhook, ChatwootResponse
 from message_handler import message_handler
-from tools.chatwoot_history_formatter import (
+from context.chatwoot_history_formatter import (
     extract_persistent_context,
     prepare_chatwoot_update
 )
 from context import PersistentContext
+from integrations.chatwoot import get_conversation_messages, send_message
+from config import settings
 
 app = FastAPI(title="Posso ReAct School Chatbot", version="1.0.0")
 
@@ -83,11 +85,27 @@ async def chatwoot_webhook(request: Request):
                 inbox_id
             )
         
-        # Format recent conversation history
+        # Fetch full conversation history from Chatwoot API
         recent_messages = []
-        if webhook.messages:
-            # Keep messages as dict format for context
-            recent_messages = [msg.model_dump() for msg in webhook.messages[-10:]]  # Last 10 messages
+        if settings.CHATWOOT_API_KEY:
+            logger.info(f"Fetching conversation messages for conversation {conversation_id}")
+            messages_from_api = await get_conversation_messages(
+                account_id=settings.CHATWOOT_ACCOUNT_ID,
+                conversation_id=int(conversation_id),
+                api_key=settings.CHATWOOT_API_KEY
+            )
+            if messages_from_api:
+                recent_messages = messages_from_api
+                logger.info(f"Fetched {len(recent_messages)} messages from Chatwoot API")
+            else:
+                logger.warning("No messages fetched from Chatwoot API")
+        else:
+            # Fallback to webhook messages if API key not configured
+            if webhook.messages:
+                recent_messages = [msg.model_dump() for msg in webhook.messages]
+                logger.info(f"Using {len(recent_messages)} messages from webhook (no API key)")
+            else:
+                logger.info("No conversation history available")
         
         logger.info(f"Processing message from contact {contact_id}: {message_content[:50]}...")
         
@@ -104,6 +122,19 @@ async def chatwoot_webhook(request: Request):
         )
         
         if result["success"]:
+            # Send the response message to Chatwoot via API
+            if settings.CHATWOOT_API_KEY and result.get("response"):
+                send_result = await send_message(
+                    account_id=settings.CHATWOOT_ACCOUNT_ID,
+                    conversation_id=int(conversation_id),
+                    message=result["response"],
+                    api_key=settings.CHATWOOT_API_KEY
+                )
+                if send_result.get("success"):
+                    logger.info(f"Successfully sent response to Chatwoot conversation {conversation_id}")
+                else:
+                    logger.error(f"Failed to send message to Chatwoot: {send_result.get('error')}")
+            
             # Prepare response with updated attributes
             response_data = {
                 "success": True,
@@ -121,6 +152,17 @@ async def chatwoot_webhook(request: Request):
             return JSONResponse(content=response_data, status_code=200)
         else:
             logger.error(f"Error processing message: {result.get('error')}")
+            
+            # Send error message to Chatwoot
+            if settings.CHATWOOT_API_KEY:
+                error_message = result.get("response", "I encountered an error processing your message. Please try again.")
+                await send_message(
+                    account_id=settings.CHATWOOT_ACCOUNT_ID,
+                    conversation_id=int(conversation_id),
+                    message=error_message,
+                    api_key=settings.CHATWOOT_API_KEY
+                )
+            
             return JSONResponse(
                 content={
                     "success": False,

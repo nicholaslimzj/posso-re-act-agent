@@ -12,6 +12,8 @@ sentence-transformers
 python-dotenv
 loguru
 requests
+httpx
+pytz
 
 # Web framework
 fastapi

@@ -2,25 +2,41 @@
 Chatwoot conversation history formatter
 """
 from typing import List, Dict, Any, Optional
+from datetime import datetime, timedelta
+import pytz
 from loguru import logger
 
 
-def format_chatwoot_messages(messages: List[Dict[str, Any]], limit: int = 10) -> str:
+def format_chatwoot_messages(messages: List[Dict[str, Any]], limit: int = 14, exclude_last: bool = True) -> str:
     """
-    Format Chatwoot messages into readable conversation history
+    Format Chatwoot messages into readable conversation history.
     
     Args:
         messages: List of message dictionaries from Chatwoot
-        limit: Maximum number of messages to include
+        limit: Maximum number of messages to include (default 14)
+        exclude_last: If True, excludes the last user message (since it becomes HumanMessage)
         
     Returns:
         Formatted conversation string
     """
     try:
+        if not messages:
+            return ""
+        
+        # Singapore timezone
+        singapore_tz = pytz.timezone('Asia/Singapore')
+        
         # Take only the most recent messages
         recent_messages = messages[-limit:] if len(messages) > limit else messages
         
+        # If exclude_last is True and the last message is from the user, remove it
+        if exclude_last and recent_messages:
+            last_msg = recent_messages[-1]
+            if last_msg.get("message_type") == 0:  # Incoming from contact
+                recent_messages = recent_messages[:-1]  # Remove the last message
+        
         formatted_lines = []
+        prev_timestamp = None
         
         for msg in recent_messages:
             # Skip system messages (type 2)
@@ -30,22 +46,52 @@ def format_chatwoot_messages(messages: List[Dict[str, Any]], limit: int = 10) ->
             content = msg.get("content", "").strip()
             if not content:
                 continue
-                
-            # Determine sender
+            
+            # Parse timestamp
+            timestamp = None
+            if msg.get("created_at"):
+                try:
+                    # Chatwoot sends timestamps as Unix timestamps (seconds)
+                    timestamp = datetime.fromtimestamp(msg["created_at"], tz=pytz.UTC)
+                    timestamp = timestamp.astimezone(singapore_tz)
+                except (ValueError, TypeError):
+                    logger.warning(f"Failed to parse timestamp: {msg.get('created_at')}")
+            
+            # Add date separator if there's a long gap (>1 week)
+            if timestamp and prev_timestamp:
+                time_gap = timestamp - prev_timestamp
+                if time_gap > timedelta(weeks=1):
+                    # Add a separator with the date
+                    separator_date = timestamp.strftime("%A, %B %d, %Y")
+                    formatted_lines.append(f"\n--- {separator_date} ---")
+            
+            # Format time string
+            time_str = ""
+            if timestamp:
+                time_str = timestamp.strftime("%H:%M")
+                prev_timestamp = timestamp
+            
+            # Determine sender and format message
             if msg.get("message_type") == 0:  # Incoming from contact
-                sender_info = msg.get("sender", {})
-                sender_name = sender_info.get("name", "Contact")
-                formatted_lines.append(f"[{sender_name}]: {content}")
+                if time_str:
+                    formatted_lines.append(f"User [{time_str}]: {content}")
+                else:
+                    formatted_lines.append(f"User: {content}")
                 
             elif msg.get("message_type") == 1:  # Outgoing from agent
-                sender_info = msg.get("sender", {})
-                if isinstance(sender_info, dict):
-                    sender_name = sender_info.get("name", "Agent")
+                if time_str:
+                    formatted_lines.append(f"Assistant [{time_str}]: {content}")
                 else:
-                    sender_name = "Agent"
-                formatted_lines.append(f"[{sender_name}]: {content}")
+                    formatted_lines.append(f"Assistant: {content}")
         
-        return "\n".join(formatted_lines) if formatted_lines else ""
+        # Join with newlines for readability
+        if formatted_lines:
+            # Add a header if we have messages
+            history = "Recent conversation history:\n"
+            history += "\n".join(formatted_lines)
+            return history
+        
+        return ""
         
     except Exception as e:
         logger.error(f"Error formatting Chatwoot messages: {e}")

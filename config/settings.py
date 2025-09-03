@@ -25,6 +25,16 @@ class Settings:
     # School Configuration
     DEFAULT_SCHOOL_ID: str = "tampines"
     
+    # Pipedrive Configuration
+    PIPEDRIVE_API_URL: str = os.getenv("PIPEDRIVE_API_URL", "https://api.pipedrive.com/v1")
+    PIPEDRIVE_APIV2_URL: str = os.getenv("PIPEDRIVE_APIV2_URL", "https://api.pipedrive.com")
+    PIPEDRIVE_API_KEY: str = os.getenv("PIPEDRIVE_API_KEY", "")
+    
+    # Chatwoot Configuration
+    CHATWOOT_API_URL: str = os.getenv("CHATWOOT_API_URL", "https://app.chatwoot.com")
+    CHATWOOT_ACCOUNT_ID: int = int(os.getenv("CHATWOOT_ACCOUNT_ID", "1"))
+    CHATWOOT_API_KEY: str = os.getenv("CHATWOOT_API_KEY", "")
+    
     @classmethod
     def validate(cls) -> bool:
         """Validate required environment variables"""
