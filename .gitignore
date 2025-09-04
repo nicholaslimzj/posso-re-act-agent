@@ -48,3 +48,6 @@ dump.rdb
 
 # Docker
 .dockerignore
+
+samples/
+references/

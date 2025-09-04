@@ -15,7 +15,7 @@ from integrations.pipedrive import (
     calculate_child_level,
     create_enrollment_deal
 )
-from context.models import FullContext, TourStatus
+from context.models import FullContext, TourStatus, TaskType, TaskStatus
 from tools.shared_workflows import analyze_data_collection_requirements
 
 
@@ -119,6 +119,22 @@ def book_or_reschedule_tour(
                     }
             else:
                 # Regular case - need user input
+                # Store tool response data for context continuity
+                context.active.active_task_type = TaskType.TOUR_BOOKING
+                context.active.active_task_status = TaskStatus.COLLECTING_INFO
+                context.active.active_task_data = {
+                    "last_tool_response": {
+                        "tool": "book_tour",
+                        "status": "need_info",
+                        "stage": analysis["stage"],
+                        "prompt_for": analysis["prompt_for"],
+                        "progress": analysis["progress"],
+                        "next_action": "If user provides the missing information, call update_contact_info to save it, then call book_tour again to continue"
+                    },
+                    "timestamp": datetime.utcnow().isoformat()
+                }
+                # Context will be saved by the caller (agent/message_handler)
+                
                 return {
                     "status": "need_info",
                     "workflow_stage": analysis["stage"],
@@ -164,6 +180,11 @@ def book_or_reschedule_tour(
                 persistent_context.tour_scheduled_time = tour_time
                 persistent_context.tour_booked_at = datetime.utcnow().isoformat()
                 persistent_context.tour_status = TourStatus.SCHEDULED
+                
+                # Clear active task since booking is complete
+                context.active.active_task_type = None
+                context.active.active_task_status = None
+                context.active.active_task_data = {}
                 # Context will be saved by the caller (agent/message_handler)
             
             return {
@@ -197,6 +218,11 @@ def book_or_reschedule_tour(
                 persistent_context.tour_scheduled_date = tour_date
                 persistent_context.tour_scheduled_time = tour_time
                 persistent_context.tour_status = TourStatus.SCHEDULED
+                
+                # Clear active task since reschedule is complete
+                context.active.active_task_type = None
+                context.active.active_task_status = None
+                context.active.active_task_data = {}
                 # Context will be saved by the caller (agent/message_handler)
             
             return {
@@ -211,7 +237,9 @@ def book_or_reschedule_tour(
             }
         
     except Exception as e:
+        import traceback
         logger.error(f"Error in book_or_reschedule_tour: {e}")
+        logger.error(f"Full traceback:\n{traceback.format_exc()}")
         return {
             "status": "error",
             "error": str(e)

@@ -161,7 +161,7 @@ async def get_blocked_slots(start_date: str, end_date: str, school_id: Optional[
                     sg_date = activity.due_date  # No timezone conversion needed for all-day events
                     # Add a special marker for whole-day blocking
                     booked.add(f"{sg_date}_WHOLE_DAY")
-                    logger.info(f"Blocking entire day {sg_date}: {activity.subject}")
+                    logger.debug(f"Blocking entire day {sg_date}: {activity.subject}")
                 else:
                     # Handle timed activities with duration
                     sg_date = activity.get_singapore_date()
@@ -214,7 +214,6 @@ async def get_blocked_slots(start_date: str, end_date: str, school_id: Optional[
                             if activity_start < slot_end and slot_start < activity_end:
                                 slot_key = f"{sg_date}_{slot_time}"
                                 booked.add(slot_key)
-                                logger.info(f"Blocking slot {slot_key} due to overlapping activity: {activity.subject} ({sg_time} for {duration_hours:.1f}h)")
             
             return booked
             

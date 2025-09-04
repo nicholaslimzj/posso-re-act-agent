@@ -5,6 +5,7 @@ Acts as Pocco's editor - takes Pocco's draft response and polishes it to sound m
 
 from typing import Dict, Any, Optional, List
 from langchain_openai import ChatOpenAI
+from config import settings
 from langchain_core.messages import SystemMessage, HumanMessage
 from loguru import logger
 from context.models import FullContext
@@ -19,9 +20,9 @@ class ResponseCraftingAgent:
     """
     
     def __init__(self):
-        # Use Llama-4 Maverick via OpenRouter for fast response crafting
+        # Use configured model via OpenRouter for fast response crafting
         self.llm = ChatOpenAI(
-            model="meta-llama/llama-4-maverick",
+            model=settings.RESPONSE_CRAFTING_MODEL,
             openai_api_base="https://openrouter.ai/api/v1",
             openai_api_key=os.getenv("OPENROUTER_API_KEY"),
             temperature=0.7,  # Slightly creative for natural flow
@@ -201,7 +202,14 @@ Return only the rewritten response text. Don't add explanations or other content
         # Build conversation context
         conv_context = ""
         if chatwoot_history:
-            conv_context = f"\n**Recent conversation context:**\n{chatwoot_history[-300:]}"  # Last 300 chars
+            # Split by lines and take last N messages instead of character limit
+            lines = chatwoot_history.split('\n')
+            # Find message lines (skip header and separators)
+            message_lines = [line for line in lines if line.startswith(('User ', 'Assistant '))]
+            # Take last 6 messages for context
+            last_messages = message_lines[-6:] if len(message_lines) > 6 else message_lines
+            if last_messages:
+                conv_context = f"\n**Recent conversation context:**\nRecent conversation history:\n" + "\n".join(last_messages)
         
         prompt = f"""Please polish this response from Pocco to make it sound more natural and warm:
 

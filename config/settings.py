@@ -8,7 +8,8 @@ load_dotenv()
 class Settings:
     # OpenRouter Configuration
     OPENROUTER_API_KEY: str = os.getenv("OPENROUTER_API_KEY", "")
-    MODEL_NAME: str = os.getenv("MODEL_NAME", "openai/gpt-4o-mini-2024-07-18")
+    MODEL_NAME: str = os.getenv("MODEL_NAME", "openai/gpt-4o-mini")
+    RESPONSE_CRAFTING_MODEL: str = os.getenv("RESPONSE_CRAFTING_MODEL", "meta-llama/llama-4-maverick")
     
     # Redis Configuration  
     REDIS_URL: str = os.getenv("REDIS_URL", "redis://localhost:6379")
@@ -34,6 +35,10 @@ class Settings:
     CHATWOOT_API_URL: str = os.getenv("CHATWOOT_API_URL", "https://app.chatwoot.com")
     CHATWOOT_ACCOUNT_ID: int = int(os.getenv("CHATWOOT_ACCOUNT_ID", "1"))
     CHATWOOT_API_KEY: str = os.getenv("CHATWOOT_API_KEY", "")
+    
+    # Upstash Configuration
+    UPSTASH_VECTOR_REST_URL: str = os.getenv("UPSTASH_VECTOR_REST_URL", "")
+    UPSTASH_VECTOR_REST_TOKEN: str = os.getenv("UPSTASH_VECTOR_REST_TOKEN", "")
     
     @classmethod
     def validate(cls) -> bool:

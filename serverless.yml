@@ -1,0 +1,84 @@
+# Serverless Framework configuration for AWS Lambda deployment
+# Alternative to manual deployment script
+
+service: posso-react-agent
+
+provider:
+  name: aws
+  runtime: python3.11
+  stage: ${opt:stage, 'dev'}
+  region: ${opt:region, 'us-east-1'}
+  memorySize: 1024
+  timeout: 300
+  
+  environment:
+    ENV: production
+    # Add other environment variables via AWS Systems Manager Parameter Store
+    # or AWS Secrets Manager for security
+
+  iamRoleStatements:
+    - Effect: Allow
+      Action:
+        - logs:CreateLogGroup
+        - logs:CreateLogStream
+        - logs:PutLogEvents
+      Resource: "*"
+
+functions:
+  webhook:
+    handler: lambda_handler.lambda_handler
+    name: ${self:service}-${self:provider.stage}-webhook
+    description: Posso ReAct School Chatbot webhook handler
+    
+    # Enable SnapStart for faster cold starts
+    snapStart: true
+    
+    events:
+      - http:
+          path: webhook
+          method: post
+          cors: false
+    
+    # Reserved concurrency to control costs
+    reservedConcurrency: 10
+    
+  health:
+    handler: lambda_handler.health_handler
+    name: ${self:service}-${self:provider.stage}-health
+    
+    events:
+      - http:
+          path: health
+          method: get
+          cors: false
+
+plugins:
+  - serverless-python-requirements
+
+custom:
+  pythonRequirements:
+    dockerizePip: true
+    fileName: lambda_requirements.txt
+    slim: true
+    strip: false
+
+package:
+  include:
+    - lambda_handler.py
+    - message_handler.py
+    - config/**
+    - context/**
+    - agents/**
+    - tools/**
+    - models/**
+    - integrations/**
+    - data/**
+  exclude:
+    - .git/**
+    - __pycache__/**
+    - "*.pyc"
+    - tests/**
+    - scripts/**
+    - docker-compose*.yml
+    - Dockerfile
+    - requirements.txt  # Use lambda_requirements.txt instead

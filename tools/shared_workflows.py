@@ -2,8 +2,7 @@
 Shared workflow logic for tools that need parent/child information
 """
 
-from typing import Dict, Any, List, Optional
-from loguru import logger
+from typing import Dict, Any, List
 
 
 def analyze_data_collection_requirements(
@@ -53,8 +52,8 @@ def analyze_data_collection_requirements(
             "fields": [
                 {
                     "name": "parent_preferred_name",
-                    "display": "your preferred name",
-                    "question": "What name would you prefer us to use when we contact you?",
+                    "display": "your name",
+                    "question": "What's your name?",
                     "why": "for our records",
                     "required": True
                 },
@@ -67,6 +66,15 @@ def analyze_data_collection_requirements(
                           else "to send tour details",
                     "required": True
                 },
+                {
+                    "name": "parent_preferred_phone",
+                    "display": "your phone number", 
+                    "question": "What's the best phone number to call you back on?" if purpose == "callback_request"
+                              else "What's your phone number for our records?",
+                    "why": "for the callback" if purpose == "callback_request" 
+                          else "for our records",
+                    "required": True if purpose == "callback_request" else False
+                }
             ]
         },
         # Stage 2: Child Information
@@ -134,35 +142,67 @@ def analyze_data_collection_requirements(
                 }
             continue
         
-        # Check fields in this stage
+        # Check fields in this stage - collect ALL missing fields before returning
+        missing_required_fields = []
+        missing_optional_fields = []
+        present_required_fields = []
+        
         for field in stage["fields"]:
             field_name = field["name"]
             field_value = getattr(persistent_context, field_name, None)
             is_required = field.get("required", False)
             
-            # Debug log field checking
-            # Check if field is populated
-            
-            # Check if field exists
             if not field_value or field_value == "Unknown":
                 if is_required:
-                    # Missing required field
-                    # This is the next required field to collect
-                    return {
-                        "status": "need_info",
-                        "stage": stage["stage"],
-                        "next_action": "ask_user",
-                        "prompt_for": field_name,
-                        "reason": field["why"],
-                        "question": field["question"],
-                        "context_hint": f"Ask naturally for {field['display']}",
-                        "progress": f"{completed_required}/{total_required} required fields collected"
-                    }
+                    missing_required_fields.append(field)
+                else:
+                    missing_optional_fields.append(field)
             else:
                 # Field exists
                 if is_required:
                     completed_required += 1
-                    # Field already has value
+                    present_required_fields.append(field)
+        
+        # If we have missing required fields in this stage, return batch collection
+        if missing_required_fields:
+            # Smart skip logic: for tours only, if we have name + email, phone is optional
+            if (stage["stage"] == "parent_info" and 
+                purpose == "tour_booking" and 
+                len(present_required_fields) >= 2):
+                # Have name + email, that's enough for tours (phone is optional)
+                continue
+                
+            # Collect all missing fields (required + optional) as a batch
+            all_missing_fields = missing_required_fields + missing_optional_fields
+            field_names = [f["name"] for f in all_missing_fields]
+            questions = {f["name"]: f["question"] for f in all_missing_fields}
+            
+            # Build context hint based on stage
+            if stage["stage"] == "parent_info":
+                context_hint = "Collect parent contact details together. You can suggest using their WhatsApp name/phone if available in the context."
+            elif stage["stage"] == "child_info":
+                required_count = len(missing_required_fields)
+                optional_count = len(missing_optional_fields)
+                if required_count > 0 and optional_count > 0:
+                    context_hint = f"Collect child information together ({required_count} required fields, {optional_count} optional field - try to get all but don't insist on optional)."
+                elif required_count > 0:
+                    context_hint = f"Collect required child information together."
+                else:
+                    # Only optional fields missing, skip this stage
+                    continue
+            else:
+                context_hint = f"Collect {stage['stage']} information together."
+            
+            return {
+                "status": "need_info",
+                "stage": stage["stage"],
+                "next_action": "ask_user_batch",
+                "prompt_for": field_names,
+                "questions": questions,
+                "reason": f"to collect {stage['stage'].replace('_', ' ')}",
+                "context_hint": context_hint,
+                "progress": f"{completed_required}/{total_required} required fields collected"
+            }
     
     # Check for Pipedrive deal (not needed for callback requests that just create notes)
     if not persistent_context.pipedrive_deal_id:

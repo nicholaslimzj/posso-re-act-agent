@@ -74,8 +74,9 @@ class ReActAgent:
         def get_faq_answer_tool(question: str) -> dict:
             """
             Retrieve FAQ answer for school/tour related questions.
+            Simplify the user's question to key terms for better search.
             Args:
-                question: The user's question about the school
+                question: Clean, simple version of user's question (remove chat fluff, keep core intent)
             Returns:
                 {"answer": "...", "related_topics": [...]} or {"status": "no_match"}
             """
@@ -575,8 +576,47 @@ class ReActAgent:
             prompt_parts.append(f"**Active Task**: {context.active.active_task_type.value}")
             if context.active.active_task_status:
                 prompt_parts.append(f"**Task Status**: {context.active.active_task_status.value}")
-            if context.active.active_task_data:
-                prompt_parts.append(f"**Collected Data**: {context.active.active_task_data}")
+            
+            # Add previous tool response context for intelligent continuation
+            if context.active.active_task_data and "last_tool_response" in context.active.active_task_data:
+                # Check if data is fresh (not older than 30 minutes)
+                task_timestamp = context.active.active_task_data.get("timestamp")
+                is_fresh = True
+                if task_timestamp:
+                    from datetime import datetime, timedelta
+                    try:
+                        task_time = datetime.fromisoformat(task_timestamp.replace('Z', '+00:00'))
+                        now = datetime.utcnow()
+                        is_fresh = (now - task_time) < timedelta(minutes=30)
+                    except (ValueError, TypeError):
+                        pass  # If timestamp parsing fails, assume it's fresh
+                
+                if is_fresh:
+                    tool_response = context.active.active_task_data["last_tool_response"]
+                    prompt_parts.append("\n## Context from Previous Interaction:")
+                    prompt_parts.append(f"**Last tool used**: {tool_response.get('tool', 'unknown')}")
+                    prompt_parts.append(f"**Tool response**: {tool_response.get('status', 'unknown')}")
+                    prompt_parts.append(f"**Progress**: {tool_response.get('progress', 'unknown')}")
+                    
+                    if tool_response.get("prompt_for"):
+                        if isinstance(tool_response["prompt_for"], list):
+                            fields_needed = ", ".join(tool_response["prompt_for"])
+                        else:
+                            fields_needed = str(tool_response["prompt_for"])
+                        prompt_parts.append(f"**Still need**: {fields_needed}")
+                    
+                    if tool_response.get("stage"):
+                        prompt_parts.append(f"**Current stage**: {tool_response['stage']}")
+                    
+                    prompt_parts.append(f"**Next step**: {tool_response.get('next_action', 'Continue with the workflow')}")
+                    
+                    prompt_parts.append("\n**Consider the user's current message:**")
+                    prompt_parts.append("- Are they providing the requested information? → Continue with the workflow")
+                    prompt_parts.append("- Are they asking a related question while still interested? → Answer it briefly")
+                    prompt_parts.append("- Have they moved to a different topic entirely? → Handle the new request")
+                
+            elif context.active.active_task_data:
+                prompt_parts.append(f"**Task Data**: {context.active.active_task_data}")
         
         # Add persistent context - ALWAYS show key fields
         prompt_parts.append("\n**Parent Information:**")

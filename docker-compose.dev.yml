@@ -20,7 +20,7 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - REDIS_URL=redis://redis:6379
+      - REDIS_URL=${REDIS_URL}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
       - LANGCHAIN_TRACING_V2=${LANGCHAIN_TRACING_V2}
       - LANGCHAIN_API_KEY=${LANGCHAIN_API_KEY}
@@ -29,9 +29,9 @@ services:
     volumes:
       - .:/app  # Mount entire project for hot reload
       - ./data:/app/data
-    depends_on:
-      redis:
-        condition: service_healthy
+    # depends_on:
+    #   redis:
+    #     condition: service_healthy  # Disabled when using Upstash Redis
     command: python main.py
 
 volumes:

@@ -1,3 +1,4 @@
+# Lambda-optimized requirements (no FastAPI/uvicorn needed)
 # Core LangGraph and AI
 langgraph
 openai
@@ -6,7 +7,6 @@ openai
 redis
 pydantic
 numpy
-# sentence-transformers  # Moved to Upstash Vector
 
 # Utilities
 python-dotenv
@@ -15,11 +15,10 @@ requests
 httpx
 pytz
 
-# Web framework
-fastapi
-uvicorn[standard]
-
-# Text processing
+# Text processing (LangChain)
 langchain-text-splitters
 langchain-openai
 langchain-core
+
+# Lambda-specific
+boto3
