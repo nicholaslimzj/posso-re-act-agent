@@ -210,9 +210,18 @@ class ContextLoader:
         )
     
     def save_context(self, inbox_id: int, contact_id: str, context: FullContext) -> bool:
-        """Save active context to Redis"""
+        """Save both active and persistent context to Redis"""
         try:
-            return self.redis_manager.save_active_context(inbox_id, contact_id, context.active)
+            # Save both contexts
+            active_saved = self.redis_manager.save_active_context(inbox_id, contact_id, context.active)
+            persistent_saved = self.redis_manager.save_persistent_context(inbox_id, contact_id, context.persistent)
+            
+            if not active_saved:
+                logger.error("Failed to save active context")
+            if not persistent_saved:
+                logger.error("Failed to save persistent context")
+                
+            return active_saved and persistent_saved
         except Exception as e:
             logger.error(f"Error saving context: {e}")
             return False

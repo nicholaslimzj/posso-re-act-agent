@@ -17,12 +17,14 @@ from loguru import logger
 
 from config import settings
 from context import FullContext, redis_manager
+from agents.response_crafting_agent import ResponseCraftingAgent
 
 
 class ReActState(TypedDict):
     """State for a single ReAct invocation"""
     messages: Annotated[List[BaseMessage], add]  # Messages are accumulated via addition
     final_response: Optional[str]  # The response to return
+    crafted_response: Optional[str]  # The polished response from ResponseCraftingAgent
     tools_used: List[str]  # Track which tools were called
     reasoning_summary: str  # Human-readable summary
     cycle_count: int
@@ -37,6 +39,11 @@ class ReActState(TypedDict):
     injection_count: int  # Track injection count locally (resets each session)
     inbox_id: Optional[int]  # Chatwoot inbox ID for Redis access
     contact_id: Optional[str]  # Contact ID for Redis access
+    
+    # Response crafting context
+    context: Optional[FullContext]  # Full context for response crafting
+    chatwoot_history: Optional[str]  # Conversation history
+    original_message: Optional[str]  # Original user message for language detection
 
 
 class ReActAgent:
@@ -46,6 +53,7 @@ class ReActAgent:
         self.llm = self._setup_llm()
         self.base_tools = self._setup_base_tools()
         self.tools = self.base_tools  # Will be updated with context-aware tools
+        self.response_crafter = ResponseCraftingAgent()
         self.graph = self._build_graph()
     
     def _setup_llm(self) -> ChatOpenAI:
@@ -306,10 +314,10 @@ class ReActAgent:
                 }
         
         def should_continue_func(state: ReActState) -> str:
-            """Decide whether to continue with tools or end"""
+            """Decide whether to continue with tools or craft response"""
             if state["should_continue"] and state["cycle_count"] < settings.MAX_REASONING_CYCLES:
                 return "tools"
-            return END
+            return "response_crafting"
         
         def track_tools_node(state: ReActState) -> Dict[str, Any]:
             """Track which tools were used"""
@@ -327,6 +335,43 @@ class ReActAgent:
             
             return {"tools_used": tools_used}
         
+        def response_crafting_node(state: ReActState) -> Dict[str, Any]:
+            """Craft the final response using ResponseCraftingAgent"""
+            try:
+                final_response = state.get("final_response", "")
+                tools_used = state.get("tools_used", [])
+                
+                # Get context and history from state metadata (if available)
+                # These would need to be passed through the graph invoke call
+                context = state.get("context")
+                chatwoot_history = state.get("chatwoot_history") 
+                message = state.get("original_message", "")
+                
+                if context and final_response:
+                    # Detect language from original message
+                    target_language = self.response_crafter.detect_language(message)
+                    
+                    # Craft response
+                    crafted_response = self.response_crafter.craft_response(
+                        original_response=final_response,
+                        tools_used=tools_used,
+                        context=context,
+                        chatwoot_history=chatwoot_history,
+                        target_language=target_language
+                    )
+                    
+                    logger.info(f"Response crafted successfully in {target_language}")
+                    return {"crafted_response": crafted_response}
+                else:
+                    # Fallback to original response
+                    logger.warning("Missing context for response crafting, using original response")
+                    return {"crafted_response": final_response}
+                    
+            except Exception as e:
+                logger.error(f"Error in response crafting: {e}")
+                # Fallback to original response
+                return {"crafted_response": state.get("final_response", "")}
+        
         # Build the graph
         workflow = StateGraph(ReActState)
         
@@ -334,12 +379,14 @@ class ReActAgent:
         workflow.add_node("reasoning", reasoning_node)
         workflow.add_node("tools", ToolNode(self.tools))
         workflow.add_node("track_tools", track_tools_node)
+        workflow.add_node("response_crafting", response_crafting_node)
         
         # Define edges
         workflow.set_entry_point("reasoning")
         workflow.add_conditional_edges("reasoning", should_continue_func)
         workflow.add_edge("tools", "track_tools")
         workflow.add_edge("track_tools", "reasoning")
+        workflow.add_edge("response_crafting", END)
         
         return workflow.compile()
     
@@ -388,6 +435,7 @@ class ReActAgent:
                     HumanMessage(content=message)
                 ],
                 "final_response": None,
+                "crafted_response": None,
                 "tools_used": [],
                 "reasoning_summary": "Starting reasoning...",
                 "cycle_count": 1,
@@ -399,14 +447,18 @@ class ReActAgent:
                 # Concurrency control
                 "injection_count": 0,
                 "inbox_id": inbox_id,
-                "contact_id": contact_id
+                "contact_id": contact_id,
+                # Response crafting context
+                "context": context,
+                "chatwoot_history": chatwoot_history,
+                "original_message": message
             }
             
             # Run the ReAct graph
             final_state = self.graph.invoke(initial_state)
             
-            # Extract results
-            response = final_state.get("final_response", "I couldn't generate a response.")
+            # Extract results - prefer crafted response over final response
+            response = final_state.get("crafted_response") or final_state.get("final_response", "I couldn't generate a response.")
             
             # Build reasoning summary for Redis (simplified)
             reasoning_summary = {
@@ -444,9 +496,16 @@ class ReActAgent:
         date_str = current_date.strftime("%A, %B %d, %Y")
         
         prompt_parts = [
-            "You are a helpful assistant for Posso International Academy.",
+            "You are Pocco, the Posso Assistant — a warm, professional representative of Posso International Academy.",
             "You help parents book school tours, answer questions about the school, and assist with enrollment.",
             f"Today's date is {date_str} (Singapore time).",
+            "",
+            "## Your Personality (Pocco):",
+            "- Be warm, calm, and reassuring, like a trusted preschool educator",
+            "- Speak clearly and confidently, without sounding too formal or scripted", 
+            "- Stay patient and helpful, especially when parents are unsure or take time to decide",
+            "- Use natural, conversational language that feels human",
+            "- Focus on being helpful and supportive throughout the interaction",
             "",
             "## Available Tools:",
             "1. **get_faq_answer_tool**: Use this FIRST for any questions about:",

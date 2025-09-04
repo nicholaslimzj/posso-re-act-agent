@@ -1,7 +1,7 @@
 # ReAct School Chatbot Implementation Guide
 
 ## Project Overview
-Building a conversational school chatbot using ReAct pattern that can:
+Building a conversational school chatbot using ReAct pattern with integrated response crafting. **Pocco, the Posso Assistant** can:
 - Book tours with natural conversation flow
 - Reschedule appointments 
 - Handle parent callback requests
@@ -19,10 +19,25 @@ Building a conversational school chatbot using ReAct pattern that can:
 
 ### Data Flow
 ```
-User Message → Chatwoot → ReAct Agent (Redis Memory) → Tools → Response → Chatwoot
-                                ↓
-                         LangSmith (Tracing)
+User Message → Chatwoot → ReAct Agent (Redis Memory) → Tools → Response Crafting → Chatwoot
+                                ↓                                      ↓
+                         LangSmith (Tracing)                    LangSmith (Tracing)
 ```
+
+### ReAct Graph Architecture
+```
+Entry Point
+    ↓
+[reasoning] → (continue?) → [tools] → [track_tools] → [reasoning]
+    ↓ (done?)
+[response_crafting] → END
+```
+
+**Graph Nodes:**
+- **reasoning**: Pocco analyzes the message and decides on actions using ReAct pattern
+- **tools**: Execute tool calls (booking, FAQ, callbacks, etc.)  
+- **track_tools**: Track which tools were used for response crafting context
+- **response_crafting**: Polish Pocco's draft response for natural, warm tone
 
 ## Tool Signatures
 

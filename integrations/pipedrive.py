@@ -324,6 +324,7 @@ async def create_tour_activity(
 
 async def cancel_tour_activity(
     activity_id: int,
+    parent_name: Optional[str] = None,
     reason: Optional[str] = None
 ) -> Dict[str, Any]:
     """
@@ -331,6 +332,7 @@ async def cancel_tour_activity(
     
     Args:
         activity_id: Activity ID to cancel
+        parent_name: Parent's name to include in cancellation title
         reason: Optional cancellation reason
         
     Returns:
@@ -342,9 +344,12 @@ async def cancel_tour_activity(
         
         url = f"{api_v2_url}/api/v2/activities/{activity_id}?api_token={api_key}"
         
-        # Mark as done/cancelled
+        # Mark as done/cancelled and update title
+        cancellation_title = f"{parent_name} Cancelled Tour" if parent_name else "Parent Cancelled Tour"
+        
         payload = {
             "done": True,
+            "subject": cancellation_title,
             "note": f"Tour cancelled. {reason if reason else 'No reason provided'}"
         }
         

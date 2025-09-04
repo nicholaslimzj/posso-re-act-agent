@@ -9,7 +9,9 @@ from loguru import logger
 def analyze_data_collection_requirements(
     persistent_context: Any,
     purpose: str,  # "tour_booking" or "callback_request"
-    confirmed_fields: List[str] = None
+    confirmed_fields: List[str] = None,
+    tour_date: str = None,  # Required for tour_booking
+    tour_time: str = None   # Required for tour_booking
 ) -> Dict[str, Any]:
     """
     Analyze what information needs to be collected for various workflows.
@@ -27,6 +29,19 @@ def analyze_data_collection_requirements(
     """
     
     confirmed_fields = confirmed_fields or []
+    
+    # For tour bookings, check date/time are provided first
+    if purpose == "tour_booking":
+        if not tour_date or not tour_time:
+            return {
+                "status": "need_tour_details",
+                "stage": "tour_scheduling",
+                "next_action": "ask_user",
+                "prompt_for": "tour_date_time",
+                "reason": "to schedule your tour",
+                "context_hint": "Need to know when they want to schedule the tour",
+                "progress": "Tour date/time required"
+            }
     
     # Analyzing data requirements based on current context
     
@@ -52,15 +67,6 @@ def analyze_data_collection_requirements(
                           else "to send tour details",
                     "required": True
                 },
-                {
-                    "name": "parent_preferred_phone",
-                    "display": "your phone number", 
-                    "question": "What's the best phone number to call you back on?" if purpose == "callback_request"
-                              else "What's your phone number for our records?",
-                    "why": "for the callback" if purpose == "callback_request" 
-                          else "for our records",
-                    "required": True if purpose == "callback_request" else False
-                }
             ]
         },
         # Stage 2: Child Information
@@ -71,22 +77,25 @@ def analyze_data_collection_requirements(
                     "name": "child_name",
                     "display": "your child's name",
                     "question": "What's your child's name?",
-                    "why": "for our records",
+                    "why": "for the tour booking" if purpose == "tour_booking" else "for our records",
                     "required": True
                 },
                 {
                     "name": "child_dob",
                     "display": "your child's date of birth",
-                    "question": "What's your child's date of birth? (This helps us understand which programs are suitable)",
+                    "question": "What's your child's date of birth? (This helps us prepare age-appropriate activities for the tour)" if purpose == "tour_booking"
+                              else "What's your child's date of birth? (This helps us understand which programs are suitable)",
                     "why": "to determine the appropriate program",
                     "required": True,
                     "format": "YYYY-MM-DD"
                 },
                 {
                     "name": "preferred_enrollment_date",
-                    "display": "when you'd like to enroll",
-                    "question": "When are you hoping to enroll your child? (You can give us a month like 'January 2024')",
-                    "why": "to understand your timeline",
+                    "display": "when you're looking to enroll" if purpose == "tour_booking" else "when you'd like to enroll",
+                    "question": "When are you hoping to start? (Month and year is fine)" if purpose == "tour_booking"
+                              else "When are you hoping to enroll your child? (You can give us a month like 'January 2024')",
+                    "why": "to discuss relevant programs during your tour" if purpose == "tour_booking" 
+                          else "to understand your timeline",
                     "required": False,
                     "format": "YYYY-MM or YYYY-MM-DD"
                 }
@@ -155,14 +164,14 @@ def analyze_data_collection_requirements(
                     completed_required += 1
                     # Field already has value
     
-    # Check for Pipedrive deal
+    # Check for Pipedrive deal (not needed for callback requests that just create notes)
     if not persistent_context.pipedrive_deal_id:
         return {
             "status": "need_deal",
             "stage": "deal_creation",
             "next_action": "create_deal",
             "prompt_for": None,
-            "reason": "Creating enrollment opportunity in system",
+            "reason": "Setting up your enrollment record" if purpose == "tour_booking" else "Creating enrollment opportunity in system",
             "progress": f"{completed_required}/{total_required} required fields collected"
         }
     

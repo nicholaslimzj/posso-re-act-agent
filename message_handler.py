@@ -276,7 +276,8 @@ class MessageHandler:
                 chatwoot_history=chatwoot_history
             )
             
-            # Active context now only tracks multi-step task data, not reasoning metadata
+            # Response crafting is now handled within the ReAct graph
+            # No external response crafting needed
             
             # Add context to result for compatibility
             result['context'] = context

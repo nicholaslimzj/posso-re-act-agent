@@ -7,7 +7,7 @@ from typing import Dict, Any, Optional
 from datetime import datetime
 from loguru import logger
 
-from context.models import FullContext, PersistentContext
+from context.models import FullContext, PersistentContext, TourStatus
 from integrations.pipedrive import reschedule_tour_activity, cancel_tour_activity, add_note_to_deal, calculate_child_level
 
 
@@ -61,6 +61,7 @@ def manage_existing_tour(
             # Cancel the tour
             result = asyncio.run(cancel_tour_activity(
                 activity_id=activity_id,
+                parent_name=persistent_context.parent_preferred_name,
                 reason=reason
             ))
             
@@ -135,6 +136,7 @@ def manage_existing_tour(
                 # Update context with new tour details
                 persistent_context.tour_scheduled_date = new_date
                 persistent_context.tour_scheduled_time = new_time
+                persistent_context.tour_status = TourStatus.SCHEDULED
                 # Context will be saved by the caller
                 
                 # Add note to deal if exists
