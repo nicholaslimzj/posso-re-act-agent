@@ -5,16 +5,29 @@ service: posso-react-agent
 
 provider:
   name: aws
-  runtime: python3.11
+  runtime: python3.13
   stage: ${opt:stage, 'dev'}
-  region: ${opt:region, 'us-east-1'}
-  memorySize: 1024
-  timeout: 300
+  region: ${opt:region, 'ap-southeast-1'}  # Singapore region
+  memorySize: 2048  # More memory for faster processing
+  timeout: 30  # 30 seconds to match API Gateway limit
   
   environment:
     ENV: production
-    # Add other environment variables via AWS Systems Manager Parameter Store
-    # or AWS Secrets Manager for security
+    # Environment variables from Parameter Store
+    UPSTASH_VECTOR_REST_URL: ${ssm:/posso/upstash-vector-url}
+    UPSTASH_VECTOR_REST_TOKEN: ${ssm:/posso/upstash-vector-token}
+    REDIS_URL: ${ssm:/posso/redis-url}
+    OPENROUTER_API_KEY: ${ssm:/posso/openrouter-key}
+    MODEL_NAME: ${ssm:/posso/model-name, 'openai/gpt-4o-mini'}
+    RESPONSE_CRAFTING_MODEL: ${ssm:/posso/response-crafting-model, 'meta-llama/llama-4-maverick'}
+    CHATWOOT_API_URL: ${ssm:/posso/chatwoot-api-url, 'https://app.chatwoot.com'}
+    CHATWOOT_API_KEY: ${ssm:/posso/chatwoot-key}
+    CHATWOOT_ACCOUNT_ID: ${ssm:/posso/chatwoot-account-id}
+    PIPEDRIVE_API_URL: ${ssm:/posso/pipedrive-api-url, 'https://api.pipedrive.com/v1'}
+    PIPEDRIVE_APIV2_URL: ${ssm:/posso/pipedrive-apiv2-url, 'https://api.pipedrive.com'}
+    PIPEDRIVE_API_KEY: ${ssm:/posso/pipedrive-key}
+    LANGCHAIN_TRACING_V2: ${ssm:/posso/langchain-tracing, 'false'}
+    LANGCHAIN_API_KEY: ${ssm:/posso/langchain-key, ''}
 
   iamRoleStatements:
     - Effect: Allow
@@ -39,8 +52,8 @@ functions:
           method: post
           cors: false
     
-    # Reserved concurrency to control costs
-    reservedConcurrency: 10
+    # Reserved concurrency to control costs (adjust based on expected load)
+    # reservedConcurrency: 10  # Commented out for initial deployment
     
   health:
     handler: lambda_handler.health_handler
@@ -61,6 +74,8 @@ custom:
     fileName: lambda_requirements.txt
     slim: true
     strip: false
+    useDownloadCache: false
+    useStaticCache: false
 
 package:
   include:
@@ -72,13 +87,18 @@ package:
     - tools/**
     - models/**
     - integrations/**
-    - data/**
+    # - data/**  # Not needed since using Upstash Vector
   exclude:
     - .git/**
     - __pycache__/**
     - "*.pyc"
     - tests/**
     - scripts/**
+    - data/**  # FAQ files not needed (using Upstash Vector)
     - docker-compose*.yml
     - Dockerfile
     - requirements.txt  # Use lambda_requirements.txt instead
+    - .env  # Environment variables (extra safety)
+    - .env.example
+    - README.md
+    - docs/**

@@ -51,3 +51,5 @@ dump.rdb
 
 samples/
 references/
+node_modules/
+.serverless/

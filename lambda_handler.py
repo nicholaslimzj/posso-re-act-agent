@@ -5,6 +5,7 @@ Optimized for SnapStart with proper initialization separation
 
 import json
 import os
+import asyncio
 from typing import Dict, Any, Optional
 from loguru import logger
 
@@ -66,61 +67,83 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                 'body': json.dumps({'error': 'Invalid webhook format'})
             }
         
-        # Only process message created events
-        if webhook.event != "message_created":
+        # Only process message created events (including automation events)
+        if webhook.event not in ["message_created", "automation_event.message_created"]:
             logger.info(f"Ignoring event: {webhook.event}")
             return {
                 'statusCode': 200,
                 'body': json.dumps({'message': 'Event ignored'})
             }
         
-        # Extract message details
-        message_data = webhook.data
-        message_content = message_data.content.strip()
+        # Extract latest incoming message
+        latest_message = webhook.get_latest_message()
+        if not latest_message:
+            logger.info("No incoming message found")
+            return {
+                'statusCode': 200,
+                'body': json.dumps({'message': 'No message to process'})
+            }
         
-        # Skip if message is empty or from bot
-        if not message_content or message_data.message_type != 0:  # 0 = incoming
-            logger.info("Skipping empty message or bot message")
+        message_content = latest_message.content.strip()
+        
+        # Skip if message is empty
+        if not message_content:
+            logger.info("Skipping empty message")
             return {
                 'statusCode': 200,
                 'body': json.dumps({'message': 'Message skipped'})
             }
         
         # Get conversation details
-        conversation = message_data.conversation
-        inbox_id = conversation.inbox_id
-        contact_id = str(conversation.contact_last_seen_at or conversation.id)
+        inbox_id = webhook.inbox_id
+        contact_id = str(webhook.contact_inbox.contact_id)
         
-        # Get conversation history
-        messages = get_conversation_messages(
-            conversation.id, 
-            settings.CHATWOOT_ACCOUNT_ID
-        )
+        # Get conversation history (skip for now since it's async)
+        messages = [msg.model_dump() for msg in webhook.messages]
         
         # Extract persistent context
         persistent_context_dict = extract_persistent_context(
-            conversation.additional_attributes, 
+            webhook.additional_attributes, 
             inbox_id
         )
         persistent_context = PersistentContext(**persistent_context_dict)
         
         # Get message handler and process
         handler = get_message_handler()
-        result = handler.process_message(
-            message=message_content,
+        result = handler.process_chatwoot_message(
             inbox_id=inbox_id,
             contact_id=contact_id,
-            messages=messages,
-            persistent_context=persistent_context
+            conversation_id=str(webhook.id),
+            message_content=message_content,
+            message_id=str(latest_message.id),
+            whatsapp_profile=webhook.get_contact_info(),
+            chatwoot_additional_params=persistent_context.model_dump(),
+            recent_messages=messages
         )
         
         if result["success"]:
-            # Send response via Chatwoot
-            send_message(
-                conversation_id=conversation.id,
-                account_id=settings.CHATWOOT_ACCOUNT_ID,
-                message=result["response"]
-            )
+            # Send response via Chatwoot API (using sync wrapper)
+            # Skip sending if message was queued (another process will handle it)
+            if result.get("response") and not result.get("queued"):
+                try:
+                    logger.info(f"🔍 DEBUG - Sending message with params:")
+                    logger.info(f"  account_id: {settings.CHATWOOT_ACCOUNT_ID}")
+                    logger.info(f"  conversation_id: {webhook.id}")
+                    logger.info(f"  message: {result['response'][:100]}...")
+                    logger.info(f"  api_key: {settings.CHATWOOT_API_KEY[:10]}...***")
+                    
+                    send_result = asyncio.run(send_message(
+                        account_id=settings.CHATWOOT_ACCOUNT_ID,
+                        conversation_id=webhook.id,
+                        message=result["response"],
+                        api_key=settings.CHATWOOT_API_KEY
+                    ))
+                    if send_result.get("success"):
+                        logger.info(f"✅ Response sent successfully to conversation {webhook.id}")
+                    else:
+                        logger.error(f"Failed to send message: {send_result.get('error')}")
+                except Exception as e:
+                    logger.error(f"Error sending message: {e}")
             
             # Update persistent context if changed
             if "context" in result:
