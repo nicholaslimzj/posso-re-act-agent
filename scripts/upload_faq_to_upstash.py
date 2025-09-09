@@ -1,21 +1,19 @@
 #!/usr/bin/env python3
 """
-Upload FAQ embeddings to Upstash Vector
-Uses the same sentence-transformers model to create embeddings locally,
-then uploads them to Upstash Vector for serverless search.
+Upload FAQ data to Upstash Vector
+Uses Upstash's built-in vectorization to ensure consistency with query-data endpoint.
 """
 
 import asyncio
 import httpx
-from sentence_transformers import SentenceTransformer
 import os
 from typing import List, Dict, Any
 import json
 from loguru import logger
 
-# Load environment variables
+# Load environment variables (try .env file if running locally)
 from dotenv import load_dotenv
-load_dotenv()
+load_dotenv()  # This will silently fail if .env doesn't exist (which is fine in Docker)
 
 UPSTASH_VECTOR_REST_URL = os.getenv("UPSTASH_VECTOR_REST_URL")
 UPSTASH_VECTOR_REST_TOKEN = os.getenv("UPSTASH_VECTOR_REST_TOKEN")
@@ -27,12 +25,26 @@ print(f"UPSTASH_VECTOR_REST_TOKEN: {'***' if UPSTASH_VECTOR_REST_TOKEN else 'NOT
 if not UPSTASH_VECTOR_REST_URL or not UPSTASH_VECTOR_REST_TOKEN:
     raise ValueError("Please set UPSTASH_VECTOR_REST_URL and UPSTASH_VECTOR_REST_TOKEN in .env")
 
-async def upload_faq_embeddings():
-    """Upload FAQ content and embeddings to Upstash Vector"""
+async def clear_database():
+    """Clear all vectors from the Upstash Vector database"""
+    logger.info("🗑️ Clearing Upstash Vector database...")
     
-    # Load the same model used locally
-    logger.info("Loading sentence-transformers model...")
-    model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        response = await client.delete(
+            f"{UPSTASH_VECTOR_REST_URL}/reset",
+            headers={
+                "Authorization": f"Bearer {UPSTASH_VECTOR_REST_TOKEN}"
+            }
+        )
+        
+        if response.status_code != 200:
+            logger.error(f"Clear failed: {response.status_code} - {response.text}")
+            raise Exception("Failed to clear database")
+        
+        logger.info("✅ Database cleared successfully!")
+
+async def upload_faq_data():
+    """Upload FAQ content to Upstash Vector using auto-vectorization"""
     
     # Read FAQ content
     faq_path = "data/posso_faq.txt"
@@ -46,30 +58,25 @@ async def upload_faq_embeddings():
     sections = [section.strip() for section in faq_content.split('\n\n') if section.strip()]
     logger.info(f"Found {len(sections)} FAQ sections")
     
-    # Generate embeddings
-    logger.info("Generating embeddings...")
-    embeddings = model.encode(sections)
-    
-    # Prepare data for upload
+    # Prepare data for upload using upsert-data (auto-vectorization)
     vectors_to_upload = []
-    for i, (section, embedding) in enumerate(zip(sections, embeddings)):
+    for i, section in enumerate(sections):
         # Extract title (first line) and content
         lines = section.split('\n')
         title = lines[0] if lines else f"Section {i+1}"
-        content = section
         
         vectors_to_upload.append({
             "id": f"faq_{i}",
-            "vector": embedding.tolist(),
+            "data": section,  # Raw text - Upstash will vectorize this
             "metadata": {
                 "title": title,
-                "content": content,
+                "content": section,
                 "section_id": i
             }
         })
     
-    # Upload to Upstash Vector
-    logger.info(f"Uploading {len(vectors_to_upload)} vectors to Upstash...")
+    # Upload to Upstash Vector using upsert-data
+    logger.info(f"Uploading {len(vectors_to_upload)} text sections to Upstash (auto-vectorization)...")
     
     async with httpx.AsyncClient(timeout=60.0) as client:
         # Upload in batches (Upstash may have limits)
@@ -78,7 +85,7 @@ async def upload_faq_embeddings():
             batch = vectors_to_upload[i:i + batch_size]
             
             response = await client.post(
-                f"{UPSTASH_VECTOR_REST_URL}/upsert",
+                f"{UPSTASH_VECTOR_REST_URL}/upsert-data",
                 headers={
                     "Authorization": f"Bearer {UPSTASH_VECTOR_REST_TOKEN}",
                     "Content-Type": "application/json"
@@ -92,7 +99,7 @@ async def upload_faq_embeddings():
             
             logger.info(f"Uploaded batch {i//batch_size + 1}/{(len(vectors_to_upload) + batch_size - 1)//batch_size}")
     
-    logger.info("✅ FAQ embeddings successfully uploaded to Upstash Vector!")
+    logger.info("✅ FAQ data successfully uploaded to Upstash Vector!")
     
     # Test the search
     await test_search()
@@ -133,4 +140,11 @@ async def test_search():
                 logger.error(f"Search test failed: {response.status_code} - {response.text}")
 
 if __name__ == "__main__":
-    asyncio.run(upload_faq_embeddings())
+    import sys
+    
+    if len(sys.argv) > 1 and sys.argv[1] == "clear":
+        logger.info("Running in CLEAR mode...")
+        asyncio.run(clear_database())
+    else:
+        logger.info("Running in UPLOAD mode...")
+        asyncio.run(upload_faq_data())

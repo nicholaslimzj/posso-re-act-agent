@@ -6,6 +6,7 @@ Optimized for SnapStart with proper initialization separation
 import json
 import os
 import asyncio
+import platform
 from typing import Dict, Any, Optional
 from loguru import logger
 
@@ -97,41 +98,65 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         # Get conversation details
         inbox_id = webhook.inbox_id
         contact_id = str(webhook.contact_inbox.contact_id)
+        conversation_id = str(webhook.id)
+        message_id = str(latest_message.id)
         
-        # Get conversation history (skip for now since it's async)
-        messages = [msg.model_dump() for msg in webhook.messages]
+        # Extract contact info (like web_app does)
+        contact_info = webhook.get_contact_info()
+        whatsapp_profile = {
+            "name": contact_info.get("name"),
+            "phone": contact_info.get("phone")
+        }
         
-        # Extract persistent context
-        persistent_context_dict = extract_persistent_context(
-            webhook.additional_attributes, 
-            inbox_id
-        )
-        persistent_context = PersistentContext(**persistent_context_dict)
+        # Get conversation history from API (like web_app does)
+        messages = []
+        if settings.CHATWOOT_API_KEY:
+            logger.info(f"Fetching conversation messages for conversation {webhook.id}")
+            try:
+                messages_from_api = asyncio.run(get_conversation_messages(
+                    account_id=settings.CHATWOOT_ACCOUNT_ID,
+                    conversation_id=webhook.id,
+                    api_key=settings.CHATWOOT_API_KEY
+                ))
+                if messages_from_api:
+                    messages = messages_from_api
+                    logger.info(f"Fetched {len(messages)} messages from Chatwoot API")
+                else:
+                    logger.warning("No messages fetched from Chatwoot API")
+            except Exception as e:
+                logger.error(f"Error fetching messages: {e}")
+                
+        # Fallback to webhook messages if API fetch failed
+        if not messages and webhook.messages:
+            messages = [msg.model_dump() for msg in webhook.messages]
+            logger.info(f"Using {len(messages)} messages from webhook (fallback)")
         
-        # Get message handler and process
+        # Extract persistent context from contact_info (like web_app does)
+        persistent_data = {}
+        if contact_info.get("additional_attributes"):
+            persistent_data = extract_persistent_context(
+                contact_info["additional_attributes"],
+                inbox_id
+            )
+        
+        # Get message handler and process (exactly like web_app)
         handler = get_message_handler()
-        result = handler.process_chatwoot_message(
+        result = asyncio.run(handler.process_chatwoot_message_async(
             inbox_id=inbox_id,
             contact_id=contact_id,
-            conversation_id=str(webhook.id),
+            conversation_id=conversation_id,
             message_content=message_content,
-            message_id=str(latest_message.id),
-            whatsapp_profile=webhook.get_contact_info(),
-            chatwoot_additional_params=persistent_context.model_dump(),
+            message_id=message_id,
+            whatsapp_profile=whatsapp_profile,
+            chatwoot_additional_params=persistent_data,
             recent_messages=messages
-        )
+        ))
         
         if result["success"]:
             # Send response via Chatwoot API (using sync wrapper)
             # Skip sending if message was queued (another process will handle it)
             if result.get("response") and not result.get("queued"):
                 try:
-                    logger.info(f"🔍 DEBUG - Sending message with params:")
-                    logger.info(f"  account_id: {settings.CHATWOOT_ACCOUNT_ID}")
-                    logger.info(f"  conversation_id: {webhook.id}")
-                    logger.info(f"  message: {result['response'][:100]}...")
-                    logger.info(f"  api_key: {settings.CHATWOOT_API_KEY[:10]}...***")
-                    
                     send_result = asyncio.run(send_message(
                         account_id=settings.CHATWOOT_ACCOUNT_ID,
                         conversation_id=webhook.id,
@@ -145,12 +170,13 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                 except Exception as e:
                     logger.error(f"Error sending message: {e}")
             
-            # Update persistent context if changed
-            if "context" in result:
+            # Update persistent context if changed (like web_app does)
+            if result.get("chatwoot_sync_data"):
                 update_data = prepare_chatwoot_update(
-                    result["context"].persistent.model_dump(), 
+                    result["chatwoot_sync_data"],
                     inbox_id
                 )
+                logger.info(f"Context updated: {len(result['chatwoot_sync_data'])} fields")
                 # TODO: Update conversation additional_attributes via Chatwoot API
             
             logger.info(f"✅ Response sent successfully")
@@ -178,12 +204,21 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
 
 # Health check handler for ALB/API Gateway health checks
 def health_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
-    """Health check endpoint"""
+    """Health check endpoint with system information"""
+    
+    # Determine architecture type
+    machine = platform.machine().lower()
+    arch_type = "arm64" if machine == "aarch64" else "x86_64" if machine == "x86_64" else machine
+    
     return {
         'statusCode': 200,
         'body': json.dumps({
             'status': 'healthy',
             'service': 'posso-react-chatbot',
-            'version': '1.0.0'
+            'version': '1.0.0',
+            'architecture': arch_type,
+            'platform_machine': platform.machine(),
+            'platform_processor': platform.processor(),
+            'python_version': platform.python_version()
         })
     }

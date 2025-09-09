@@ -7,7 +7,7 @@ from typing import Dict, Any, Optional, List
 from datetime import datetime
 from loguru import logger
 
-from context.models import FullContext, PersistentContext
+from context.models import FullContext, PersistentContext, TaskType, TaskStatus
 from integrations.pipedrive import create_enrollment_deal, add_note_to_deal
 from tools.shared_workflows import analyze_data_collection_requirements
 
@@ -51,7 +51,8 @@ def request_callback(
         analysis = analyze_data_collection_requirements(
             persistent_context,
             purpose="callback_request",
-            confirmed_fields=confirmed_fields
+            confirmed_fields=confirmed_fields,
+            runtime_context=runtime_context
         )
         
         # If we need more info, return structured guidance
@@ -82,11 +83,28 @@ def request_callback(
                     analysis = analyze_data_collection_requirements(
                         persistent_context,
                         purpose="callback_request",
-                        confirmed_fields=confirmed_fields
+                        confirmed_fields=confirmed_fields,
+                        runtime_context=runtime_context
                     )
                     
                     # If still not ready after creating deal, return the new status
                     if analysis["status"] != "ready":
+                        # Store tool response data for context continuity
+                        context.active.active_task_type = TaskType.CALLBACK_REQUEST
+                        context.active.active_task_status = TaskStatus.COLLECTING_INFO
+                        context.active.active_task_data = {
+                            "last_tool_response": {
+                                "tool": "request_callback",
+                                "status": "need_info",
+                                "stage": analysis["stage"],
+                                "prompt_for": analysis["prompt_for"],
+                                "progress": analysis["progress"],
+                                "next_action": "If user provides the missing information, call update_contact_info to save it, then call request_callback again to continue"
+                            },
+                            "timestamp": datetime.utcnow().isoformat()
+                        }
+                        # Context will be saved by the caller
+                        
                         return {
                             "status": "need_info",
                             "workflow_stage": analysis["stage"],
@@ -94,7 +112,8 @@ def request_callback(
                             "prompt_for": analysis["prompt_for"],
                             "reason": analysis["reason"],
                             "context_hint": analysis.get("context_hint"),
-                            "progress": analysis["progress"]
+                            "progress": analysis["progress"],
+                            "important_note": "CALLBACK REQUEST IS NOT YET COMPLETE - still collecting required information"
                         }
                 else:
                     return {
@@ -103,6 +122,22 @@ def request_callback(
                     }
             else:
                 # Regular case - need user input
+                # Store tool response data for context continuity
+                context.active.active_task_type = TaskType.CALLBACK_REQUEST
+                context.active.active_task_status = TaskStatus.COLLECTING_INFO
+                context.active.active_task_data = {
+                    "last_tool_response": {
+                        "tool": "request_callback",
+                        "status": "need_info",
+                        "stage": analysis["stage"],
+                        "prompt_for": analysis["prompt_for"],
+                        "progress": analysis["progress"],
+                        "next_action": "If user provides the missing information, call update_contact_info to save it, then call request_callback again to continue"
+                    },
+                    "timestamp": datetime.utcnow().isoformat()
+                }
+                # Context will be saved by the caller
+                
                 return {
                     "status": "need_info",
                     "workflow_stage": analysis["stage"],
@@ -110,7 +145,8 @@ def request_callback(
                     "prompt_for": analysis["prompt_for"],
                     "reason": analysis["reason"],
                     "question": analysis.get("question"),
-                    "progress": analysis["progress"]
+                    "progress": analysis["progress"],
+                    "important_note": "CALLBACK REQUEST IS NOT YET COMPLETE - still collecting required information"
                 }
         
         # All requirements met - create the callback request
@@ -152,6 +188,11 @@ def request_callback(
             persistent_context.callback_requested = True
             persistent_context.callback_preference = callback_preference
             persistent_context.callback_requested_at = datetime.utcnow().isoformat()
+            
+            # Clear active task since callback request is complete
+            context.active.active_task_type = None
+            context.active.active_task_status = None
+            context.active.active_task_data = {}
             # Context will be saved by the caller
             
             # Format response message

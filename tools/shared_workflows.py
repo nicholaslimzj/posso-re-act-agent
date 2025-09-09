@@ -10,7 +10,8 @@ def analyze_data_collection_requirements(
     purpose: str,  # "tour_booking" or "callback_request"
     confirmed_fields: List[str] = None,
     tour_date: str = None,  # Required for tour_booking
-    tour_time: str = None   # Required for tour_booking
+    tour_time: str = None,  # Required for tour_booking
+    runtime_context: Any = None  # RuntimeContext with whatsapp_name, whatsapp_phone, etc.
 ) -> Dict[str, Any]:
     """
     Analyze what information needs to be collected for various workflows.
@@ -53,7 +54,9 @@ def analyze_data_collection_requirements(
                 {
                     "name": "parent_preferred_name",
                     "display": "your name",
-                    "question": "What's your name?",
+                    "question": f"Can I use '{runtime_context.whatsapp_name}' (your WhatsApp name) for our records?" 
+                               if runtime_context and runtime_context.whatsapp_name 
+                               else "What's your name?",
                     "why": "for our records",
                     "required": True
                 },
@@ -69,8 +72,10 @@ def analyze_data_collection_requirements(
                 {
                     "name": "parent_preferred_phone",
                     "display": "your phone number", 
-                    "question": "What's the best phone number to call you back on?" if purpose == "callback_request"
-                              else "What's your phone number for our records?",
+                    "question": f"Can I use {runtime_context.whatsapp_phone} (your WhatsApp number) for our records?" 
+                               if runtime_context and runtime_context.whatsapp_phone and purpose != "callback_request"
+                               else ("What's the best phone number to call you back on?" if purpose == "callback_request"
+                                    else "What's your phone number for our records?"),
                     "why": "for the callback" if purpose == "callback_request" 
                           else "for our records",
                     "required": True if purpose == "callback_request" else False
@@ -179,7 +184,10 @@ def analyze_data_collection_requirements(
             
             # Build context hint based on stage
             if stage["stage"] == "parent_info":
-                context_hint = "Collect parent contact details together. You can suggest using their WhatsApp name/phone if available in the context."
+                if runtime_context and runtime_context.whatsapp_name:
+                    context_hint = f"Ask {runtime_context.whatsapp_name} if their WhatsApp details are fine to use for our records."
+                else:
+                    context_hint = "Collect parent contact details together. You can suggest using their WhatsApp name/phone if available in the context."
             elif stage["stage"] == "child_info":
                 required_count = len(missing_required_fields)
                 optional_count = len(missing_optional_fields)

@@ -348,17 +348,21 @@ class ReActAgent:
                 chatwoot_history = state.get("chatwoot_history") 
                 message = state.get("original_message", "")
                 
+                # Get complete message thread (skip the first SystemMessage)
+                complete_messages = state.get("messages", [])[1:] if state.get("messages") else []
+                
                 if context and final_response:
                     # Detect language from original message
                     target_language = self.response_crafter.detect_language(message)
                     
-                    # Craft response
+                    # Craft response with complete conversation context
                     crafted_response = self.response_crafter.craft_response(
                         original_response=final_response,
                         tools_used=tools_used,
                         context=context,
                         chatwoot_history=chatwoot_history,
-                        target_language=target_language
+                        target_language=target_language,
+                        complete_messages=complete_messages
                     )
                     
                     logger.info(f"Response crafted successfully in {target_language}")

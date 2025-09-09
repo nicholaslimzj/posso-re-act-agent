@@ -1,21 +1,32 @@
 #!/bin/bash
 set -e
 
-echo "🚀 Uploading FAQ embeddings to Upstash Vector..."
-
-# Build the Docker image if it doesn't exist
-if ! docker images | grep -q "posso-re-act-agent-app"; then
-    echo "Building Docker image..."
-    docker build -t posso-re-act-agent-app .
+# Check if clear mode is requested
+if [ "$1" = "clear" ]; then
+    echo "🗑️ Clearing Upstash Vector database..."
+    MODE_ARGS="clear"
+else
+    echo "🚀 Uploading FAQ data to Upstash Vector..."
+    MODE_ARGS=""
 fi
 
-# Run the upload script inside the container
-echo "Running upload script in Docker container..."
+# Use a lightweight Python image and install only what we need
+echo "Running script in Docker container..."
 docker run --rm \
     --env-file .env \
     -v $(pwd)/data:/app/data \
     -v $(pwd)/scripts:/app/scripts \
-    posso-re-act-agent-app \
-    python scripts/upload_faq_to_upstash.py
+    -w /app \
+    python:3.11-slim \
+    bash -c "
+        echo 'Installing requirements...' && \
+        pip install --no-cache-dir httpx python-dotenv loguru && \
+        echo 'Running script...' && \
+        python scripts/upload_faq_to_upstash.py $MODE_ARGS
+    "
 
-echo "✅ Upload complete!"
+if [ "$1" = "clear" ]; then
+    echo "✅ Database cleared!"
+else
+    echo "✅ Upload complete!"
+fi

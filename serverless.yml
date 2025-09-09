@@ -6,6 +6,7 @@ service: posso-react-agent
 provider:
   name: aws
   runtime: python3.13
+  architecture: arm64  # Use ARM64 for better performance and cost
   stage: ${opt:stage, 'dev'}
   region: ${opt:region, 'ap-southeast-1'}  # Singapore region
   memorySize: 2048  # More memory for faster processing
@@ -71,6 +72,7 @@ plugins:
 custom:
   pythonRequirements:
     dockerizePip: true
+    dockerImage: public.ecr.aws/sam/build-python3.13:latest-arm64  # ARM64 build image
     fileName: lambda_requirements.txt
     slim: true
     strip: false

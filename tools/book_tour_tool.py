@@ -65,7 +65,8 @@ def book_or_reschedule_tour(
             purpose="tour_booking",
             confirmed_fields=confirmed_fields,
             tour_date=tour_date,
-            tour_time=tour_time
+            tour_time=tour_time,
+            runtime_context=runtime_context
         )
         
         # If we need more info, return structured guidance
@@ -110,7 +111,8 @@ def book_or_reschedule_tour(
                             "prompt_for": analysis["prompt_for"],
                             "reason": analysis["reason"],
                             "context_hint": analysis.get("context_hint"),
-                            "progress": analysis["progress"]
+                            "progress": analysis["progress"],
+                            "important_note": "TOUR BOOKING IS NOT YET COMPLETE - still collecting required information"
                         }
                 else:
                     return {
@@ -143,7 +145,8 @@ def book_or_reschedule_tour(
                     "reason": analysis["reason"],
                     "context_hint": analysis.get("context_hint"),
                     "question": analysis.get("question"),
-                    "progress": analysis["progress"]
+                    "progress": analysis["progress"],
+                    "important_note": "TOUR BOOKING IS NOT YET COMPLETE - still collecting required information"
                 }
         
         # All requirements met - proceed with booking
