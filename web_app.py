@@ -16,7 +16,7 @@ from context.chatwoot_history_formatter import (
     prepare_chatwoot_update
 )
 from context import PersistentContext
-from integrations.chatwoot import get_conversation_messages, send_message
+from integrations.chatwoot import get_conversation_messages, send_message, update_contact_attributes
 from config import settings
 
 app = FastAPI(title="Posso ReAct School Chatbot", version="1.0.0")
@@ -135,19 +135,38 @@ async def chatwoot_webhook(request: Request):
                 else:
                     logger.error(f"Failed to send message to Chatwoot: {send_result.get('error')}")
             
+            # Update contact attributes if available
+            if settings.CHATWOOT_API_KEY and result.get("chatwoot_sync_data"):
+                attributes_to_update = prepare_chatwoot_update(
+                    result["chatwoot_sync_data"],
+                    inbox_id
+                )
+                try:
+                    update_result = await update_contact_attributes(
+                        account_id=settings.CHATWOOT_ACCOUNT_ID,
+                        contact_id=int(contact_id),
+                        attributes=attributes_to_update,
+                        api_key=settings.CHATWOOT_API_KEY
+                    )
+                    if update_result.get("success"):
+                        logger.info(f"Successfully updated Chatwoot attributes: {len(result['chatwoot_sync_data'])} fields")
+                    else:
+                        logger.error(f"Failed to update Chatwoot attributes: {update_result.get('error')}")
+                except Exception as e:
+                    logger.error(f"Error updating Chatwoot attributes: {e}")
+            
             # Prepare response with updated attributes
             response_data = {
                 "success": True,
                 "message": result["response"]
             }
             
-            # Add updated persistent context if available
+            # Add updated persistent context if available  
             if result.get("chatwoot_sync_data"):
                 response_data["additional_attributes"] = prepare_chatwoot_update(
                     result["chatwoot_sync_data"],
                     inbox_id
                 )
-                logger.info(f"Updating Chatwoot attributes: {len(result['chatwoot_sync_data'])} fields")
             
             return JSONResponse(content=response_data, status_code=200)
         else:

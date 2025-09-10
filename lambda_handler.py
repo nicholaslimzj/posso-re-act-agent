@@ -16,7 +16,7 @@ from message_handler import MessageHandler
 from models.webhook_models import ChatwootWebhook
 from context.chatwoot_history_formatter import extract_persistent_context, prepare_chatwoot_update
 from context import PersistentContext
-from integrations.chatwoot import get_conversation_messages, send_message
+from integrations.chatwoot import get_conversation_messages, send_message, update_contact_attributes
 
 # Pre-initialize components during SnapStart (no connections yet)
 logger.info("🚀 SnapStart: Pre-initializing Posso ReAct Agent...")
@@ -170,14 +170,25 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                 except Exception as e:
                     logger.error(f"Error sending message: {e}")
             
-            # Update persistent context if changed (like web_app does)
-            if result.get("chatwoot_sync_data"):
-                update_data = prepare_chatwoot_update(
+            # Update contact attributes if available
+            if settings.CHATWOOT_API_KEY and result.get("chatwoot_sync_data"):
+                attributes_to_update = prepare_chatwoot_update(
                     result["chatwoot_sync_data"],
                     inbox_id
                 )
-                logger.info(f"Context updated: {len(result['chatwoot_sync_data'])} fields")
-                # TODO: Update conversation additional_attributes via Chatwoot API
+                try:
+                    update_result = asyncio.run(update_contact_attributes(
+                        account_id=settings.CHATWOOT_ACCOUNT_ID,
+                        contact_id=int(contact_id),
+                        attributes=attributes_to_update,
+                        api_key=settings.CHATWOOT_API_KEY
+                    ))
+                    if update_result.get("success"):
+                        logger.info(f"✅ Successfully updated Chatwoot attributes: {len(result['chatwoot_sync_data'])} fields")
+                    else:
+                        logger.error(f"Failed to update Chatwoot attributes: {update_result.get('error')}")
+                except Exception as e:
+                    logger.error(f"Error updating Chatwoot attributes: {e}")
             
             logger.info(f"✅ Response sent successfully")
             
