@@ -21,14 +21,14 @@ from tools.shared_workflows import analyze_data_collection_requirements
 
 def book_or_reschedule_tour(
     context: FullContext,
-    action: str,  # "book" or "reschedule" 
+    action: str,  # "book" or "reschedule"
     tour_date: str,
     tour_time: str,
     confirmed_fields: Optional[List[str]] = None
 ) -> Dict[str, Any]:
     """
     Intelligent tour booking with workflow orchestration.
-    
+
     This tool:
     1. Checks what data we have in context
     2. Determines what needs confirmation (if data is old/suspicious)
@@ -48,12 +48,16 @@ def book_or_reschedule_tour(
         - Missing/unconfirmed data requirements with guided next steps
     """
     try:
+        # Small delay to ensure any parallel context updates complete first
+        import time
+        time.sleep(0.1)  # 100ms delay to handle race condition with update_contact_info
+
         # Extract what we need from context
         persistent_context = context.persistent
         runtime_context = context.runtime
         inbox_id = runtime_context.inbox_id
         school_id = runtime_context.school_id
-        
+
         logger.info(f"book_or_reschedule_tour called for school {school_id}")
         logger.info(f"  Action: {action}, Date: {tour_date}, Time: {tour_time}")
         
