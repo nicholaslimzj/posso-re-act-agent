@@ -6,6 +6,7 @@ service: posso-react-agent
 provider:
   name: aws
   runtime: python3.13
+  profile: posso # Ensure using the right profile
   architecture: arm64  # Use ARM64 for better performance and cost
   stage: ${opt:stage, 'dev'}
   region: ${opt:region, 'ap-southeast-1'}  # Singapore region
@@ -26,7 +27,7 @@ provider:
     CHATWOOT_ACCOUNT_ID: ${ssm:/posso/chatwoot-account-id}
     PIPEDRIVE_API_URL: ${ssm:/posso/pipedrive-api-url, 'https://api.pipedrive.com/v1'}
     PIPEDRIVE_APIV2_URL: ${ssm:/posso/pipedrive-apiv2-url, 'https://api.pipedrive.com'}
-    PIPEDRIVE_API_KEY: ${ssm:/posso/pipedrive-key}
+    PIPEDRIVE_API_KEYS_JSON: ${ssm:/posso/pipedrive-api-keys}
     LANGCHAIN_TRACING_V2: ${ssm:/posso/langchain-tracing, 'false'}
     LANGCHAIN_API_KEY: ${ssm:/posso/langchain-key, ''}
 
@@ -44,26 +45,10 @@ functions:
     name: ${self:service}-${self:provider.stage}-webhook
     description: Posso ReAct School Chatbot webhook handler
     
-    # Enable SnapStart for faster cold starts
-    snapStart: true
-    
     events:
       - http:
           path: webhook
           method: post
-          cors: false
-    
-    # Reserved concurrency to control costs (adjust based on expected load)
-    # reservedConcurrency: 10  # Commented out for initial deployment
-    
-  health:
-    handler: lambda_handler.health_handler
-    name: ${self:service}-${self:provider.stage}-health
-    
-    events:
-      - http:
-          path: health
-          method: get
           cors: false
 
 plugins:

@@ -14,6 +14,7 @@ loguru
 requests
 httpx
 pytz
+boto3
 
 # Web framework
 fastapi

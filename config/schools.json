@@ -1,7 +1,7 @@
 {
   "schools": {
-    "74274": {
-      "school_id": "74274",
+    "77714": {
+      "school_id": "77714",
       "name": "Posso Preschool @ Tampines Point",
       "branch_phone": "+6567894131",
       "address": "2 Tampines Central 6, #05-03/04, Singapore 529483",
@@ -25,39 +25,39 @@
         }
       },
       "chatwoot": {
-        "inbox_id": 74274,
+        "inbox_id": 77714,
         "agent_id_for_handover": 130096
       },
       "tour_slots": ["10:00", "13:00"],
       "working_days": [1, 2, 3, 4, 5]
     },
-    "9999": {
-      "school_id": "9999",
-      "name": "Posso Preschool Jurong",
-      "branch_phone": "+6512345679",
-      "address": "456 Jurong Road, Singapore",
+    "74274": {
+      "school_id": "74274",
+      "name": "Posso Preschool @ West Coast Rise",
+      "branch_phone": "+6567744131",
+      "address": "30 West Coast Rise, Singapore 127473",
       "pipedrive": {
-        "pipeline_id": 2,
+        "pipeline_id": 1,
         "stages": {
-          "lead_in": 5,
-          "tour_booked": 6
+          "lead_in": 1,
+          "tour_booked": 3
         },
         "labels": {
-          "callback_requested": "xyz_callback"
+          "callback_requested": 27
         },
         "activity_types": {
           "school_tour": "meeting",
           "callback": "call"
         },
         "custom_fields": {
-          "child_name": "abc124",
-          "child_dob": "def457",
-          "preferred_start_date": "jkl013"
+          "child_name": "584fa6b35023cdb33698309e4642dd84b13fe029",
+          "child_dob": "d2467d379cb0051bf71d97a96bf7d9a3f6f9737b",
+          "preferred_start_date": "c6e9d1865da25e604c2156d74777f3b11aa597db"
         }
       },
       "chatwoot": {
-        "inbox_id": 2,
-        "agent_id_for_handover": 2
+        "inbox_id": 74274,
+        "agent_id_for_handover": 130096
       },
       "tour_slots": ["10:00", "13:00", "15:00"],
       "working_days": [1, 2, 3, 4, 5]

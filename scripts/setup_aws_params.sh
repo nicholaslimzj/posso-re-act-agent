@@ -8,6 +8,7 @@ echo "🚀 Setting up AWS Parameter Store from .env file..."
 # Extract AWS credentials from aws configure
 echo "📋 Extracting AWS credentials..."
 
+AWS_PROFILE=posso
 AWS_ACCESS_KEY_ID=$(aws configure get aws_access_key_id 2>/dev/null || echo "")
 AWS_SECRET_ACCESS_KEY=$(aws configure get aws_secret_access_key 2>/dev/null || echo "")
 AWS_DEFAULT_REGION=$(aws configure get region 2>/dev/null || echo "ap-southeast-1")

@@ -10,6 +10,62 @@ import httpx
 from config import settings
 
 
+def validate_pipedrive_config() -> None:
+    """Validate every school in schools.json has a Pipedrive API key"""
+    from config.school_manager import school_manager
+
+    # Validate PIPEDRIVE_API_KEYS is a dict
+    if not isinstance(settings.PIPEDRIVE_API_KEYS, dict):
+        raise ValueError("PIPEDRIVE_API_KEYS_JSON must be valid JSON object")
+
+    if not settings.PIPEDRIVE_API_KEYS:
+        raise ValueError("PIPEDRIVE_API_KEYS_JSON cannot be empty")
+
+    # Get all configured schools from schools.json
+    all_schools = school_manager.get_all_school_ids()
+
+    # Check each school has an API key
+    missing_schools = []
+    for school_id in all_schools:
+        if school_id not in settings.PIPEDRIVE_API_KEYS:
+            missing_schools.append(school_id)
+
+    if missing_schools:
+        available = list(settings.PIPEDRIVE_API_KEYS.keys())
+        raise ValueError(
+            f"Missing Pipedrive API keys for schools: {missing_schools}. "
+            f"Available keys: {available}. "
+            f"Schools from config: {all_schools}"
+        )
+
+
+# Validate config on module import
+validate_pipedrive_config()
+
+def get_pipedrive_api_key(school_id: str) -> str:
+    """
+    Get Pipedrive API key for a specific school from Settings.
+
+    Uses convention: PIPEDRIVE_API_KEY_{school_id}
+    Raises ValueError if school_id is not provided or API key not found.
+    """
+    if not school_id:
+        raise ValueError("school_id is required for Pipedrive operations")
+
+    logger.info(f"get_pipedrive_api_key called with school_id: {school_id}")
+
+    # Get school-specific API key from Settings
+    school_api_key = settings.PIPEDRIVE_API_KEYS.get(school_id)
+
+    if not school_api_key:
+        available_schools = list(settings.PIPEDRIVE_API_KEYS.keys())
+        raise ValueError(f"No Pipedrive API key found for school '{school_id}'. Available schools: {available_schools}")
+
+    truncated_key = f"{school_api_key[:8]}...{school_api_key[-4:]}" if len(school_api_key) > 12 else "***"
+    logger.info(f"Using school-specific API key for {school_id}: {truncated_key}")
+    return school_api_key
+
+
 def format_deal_title(
     parent_name: str,
     child_level: Optional[str] = None,
@@ -101,7 +157,7 @@ from models.pipedrive_models import (
 )
 
 
-async def get_blocked_slots(start_date: str, end_date: str, school_id: Optional[str] = None) -> Set[str]:
+async def get_blocked_slots(start_date: str, end_date: str, school_id: str) -> Set[str]:
     """
     Get all blocked time slots from Pipedrive activities.
     
@@ -122,8 +178,10 @@ async def get_blocked_slots(start_date: str, end_date: str, school_id: Optional[
     try:
         # Build Pipedrive V1 API URL for activities with date range
         api_url = settings.PIPEDRIVE_API_URL  # https://api.pipedrive.com/v1
-        api_key = settings.PIPEDRIVE_API_KEY
-        
+
+        # Get API key using centralized function
+        api_key = get_pipedrive_api_key(school_id)
+
         url = f"{api_url}/activities?start_date={start_date}&end_date={end_date}&api_token={api_key}"
         
         async with httpx.AsyncClient() as client:
@@ -153,7 +211,6 @@ async def get_blocked_slots(start_date: str, end_date: str, school_id: Optional[
                 # Skip only if activity is marked as done/cancelled
                 if activity.is_cancelled():
                     continue  # Skip cancelled/done activities
-                    continue
                 
                 # Check if this is a whole-day activity (no specific time)
                 if not activity.due_time:
@@ -226,6 +283,7 @@ async def create_tour_activity(
     deal_id: int,
     tour_date: str,
     tour_time: str,
+    school_id: str,
     parent_name: Optional[str] = None,
     child_name: Optional[str] = None,
     child_dob: Optional[str] = None,
@@ -275,9 +333,10 @@ async def create_tour_activity(
             due_time=utc_time,
             duration="01:00"
         )
-        
+
         api_v2_url = settings.PIPEDRIVE_APIV2_URL
-        api_key = settings.PIPEDRIVE_API_KEY
+        # Get API key using centralized function
+        api_key = get_pipedrive_api_key(school_id)
         
         url = f"{api_v2_url}/api/v2/activities?api_token={api_key}"
         
@@ -323,6 +382,7 @@ async def create_tour_activity(
 
 async def cancel_tour_activity(
     activity_id: int,
+    school_id: str,
     parent_name: Optional[str] = None,
     reason: Optional[str] = None
 ) -> Dict[str, Any]:
@@ -339,7 +399,8 @@ async def cancel_tour_activity(
     """
     try:
         api_v2_url = settings.PIPEDRIVE_APIV2_URL
-        api_key = settings.PIPEDRIVE_API_KEY
+        # Get API key using centralized function
+        api_key = get_pipedrive_api_key(school_id)
         
         url = f"{api_v2_url}/api/v2/activities/{activity_id}?api_token={api_key}"
         
@@ -380,6 +441,7 @@ async def reschedule_tour_activity(
     activity_id: int,
     tour_date: str,
     tour_time: str,
+    school_id: str,
     child_name: Optional[str] = None,
     child_level: Optional[str] = None
 ) -> TourBookingResponse:
@@ -417,9 +479,10 @@ async def reschedule_tour_activity(
             due_time=utc_time,
             subject=subject
         )
-        
+
         api_v2_url = settings.PIPEDRIVE_APIV2_URL
-        api_key = settings.PIPEDRIVE_API_KEY
+        # Get API key using centralized function
+        api_key = get_pipedrive_api_key(school_id)
         
         url = f"{api_v2_url}/api/v2/activities/{activity_id}?api_token={api_key}"
         
@@ -489,6 +552,7 @@ def calculate_child_level(birth_date: str, enrollment_date: str) -> str:
 
 async def create_or_get_person(
     name: str,
+    school_id: str,
     phone: Optional[str] = None,
     email: Optional[str] = None
 ) -> Optional[int]:
@@ -512,10 +576,11 @@ async def create_or_get_person(
             emails=[email] if email else None
         )
         # Request prepared with validated data
-        
+
         api_v2_url = settings.PIPEDRIVE_APIV2_URL
-        api_key = settings.PIPEDRIVE_API_KEY
-        
+        # Get API key using centralized function
+        api_key = get_pipedrive_api_key(school_id)
+
         url = f"{api_v2_url}/api/v2/persons?api_token={api_key}"
         
         async with httpx.AsyncClient() as client:
@@ -562,7 +627,7 @@ async def create_enrollment_deal(
     """
     try:
         # First, create or get the person (parent)
-        person_id = await create_or_get_person(parent_name, parent_phone, parent_email)
+        person_id = await create_or_get_person(parent_name, school_id, parent_phone, parent_email)
         if not person_id:
             return {
                 "status": "error",
@@ -603,9 +668,10 @@ async def create_enrollment_deal(
             stage_id=stage_id,
             custom_fields=custom_fields if custom_fields else None
         )
-        
+
         api_v2_url = settings.PIPEDRIVE_APIV2_URL
-        api_key = settings.PIPEDRIVE_API_KEY
+        # Get API key using centralized function
+        api_key = get_pipedrive_api_key(school_id)
         
         url = f"{api_v2_url}/api/v2/deals?api_token={api_key}"
         
@@ -657,7 +723,8 @@ async def add_note_to_deal(
     """
     try:
         api_url = settings.PIPEDRIVE_API_URL
-        api_key = settings.PIPEDRIVE_API_KEY
+        # Get API key using centralized function
+        api_key = get_pipedrive_api_key(school_id)
         
         url = f"{api_url}/notes?api_token={api_key}"
         

@@ -61,6 +61,7 @@ def manage_existing_tour(
             # Cancel the tour
             result = asyncio.run(cancel_tour_activity(
                 activity_id=activity_id,
+                school_id=school_id,
                 parent_name=persistent_context.parent_preferred_name,
                 reason=reason
             ))
@@ -124,6 +125,7 @@ def manage_existing_tour(
                 activity_id=activity_id,
                 tour_date=new_date,
                 tour_time=new_time,
+                school_id=school_id,
                 child_name=persistent_context.child_name,
                 child_level=child_level
             ))

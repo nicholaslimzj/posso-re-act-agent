@@ -501,7 +501,7 @@ class ReActAgent:
         date_str = current_date.strftime("%A, %B %d, %Y")
         
         prompt_parts = [
-            "You are Pocco, the Posso Assistant — a warm, professional representative of Posso International Academy.",
+            "You are Pocco, the Posso Assistant — a warm, professional representative of Posso Preschool.",
             "You help parents book school tours, answer questions about the school, and assist with enrollment.",
             f"Today's date is {date_str} (Singapore time).",
             "",

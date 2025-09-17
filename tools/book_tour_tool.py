@@ -169,6 +169,7 @@ def book_or_reschedule_tour(
                 deal_id=deal_id,
                 tour_date=tour_date,
                 tour_time=tour_time,
+                school_id=school_id,
                 parent_name=persistent_context.parent_preferred_name,
                 child_name=persistent_context.child_name,
                 child_dob=persistent_context.child_dob,
@@ -212,6 +213,7 @@ def book_or_reschedule_tour(
                 activity_id=activity_id,
                 tour_date=tour_date,
                 tour_time=tour_time,
+                school_id=school_id,
                 child_name=persistent_context.child_name,
                 child_level=child_level
             ))
