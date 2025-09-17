@@ -176,6 +176,15 @@ async def get_blocked_slots(start_date: str, end_date: str, school_id: str) -> S
         - "YYYY-MM-DD_WHOLE_DAY" for whole-day blocks
     """
     try:
+        logger.info(f"get_blocked_slots called: {start_date} to {end_date}, school_id: {school_id}")
+
+        # Get school configuration for block_day activity types
+        from config import school_manager
+        school_config = school_manager.get_school_config(school_id)
+        if not school_config:
+            logger.warning(f"No school config found for {school_id}")
+            return set()
+
         # Build Pipedrive V1 API URL for activities with date range
         api_url = settings.PIPEDRIVE_API_URL  # https://api.pipedrive.com/v1
 
@@ -212,13 +221,52 @@ async def get_blocked_slots(start_date: str, end_date: str, school_id: str) -> S
                 if activity.is_cancelled():
                     continue  # Skip cancelled/done activities
                 
-                # Check if this is a whole-day activity (no specific time)
-                if not activity.due_time:
-                    # Block all slots for this day
-                    sg_date = activity.due_date  # No timezone conversion needed for all-day events
-                    # Add a special marker for whole-day blocking
-                    booked.add(f"{sg_date}_WHOLE_DAY")
-                    logger.debug(f"Blocking entire day {sg_date}: {activity.subject}")
+                # Check if this is a whole-day activity
+                # Whole-day = no time slot OR duration > 8 hours
+                is_whole_day = not activity.due_time
+
+                if not is_whole_day and activity.duration:
+                    # Parse duration to check if > 8 hours
+                    try:
+                        duration_parts = activity.duration.split(":")
+                        if len(duration_parts) >= 2:
+                            duration_hours = int(duration_parts[0])
+                            duration_minutes = int(duration_parts[1])
+                            total_hours = duration_hours + (duration_minutes / 60)
+                            is_whole_day = total_hours > 8
+                    except (ValueError, IndexError):
+                        # If duration parsing fails, treat as regular timed activity
+                        pass
+
+                if is_whole_day:
+                    # Convert to Singapore date (in case due_date is in different timezone)
+                    sg_date = activity.get_singapore_date() or activity.due_date
+
+                    # Only block entire day if activity type matches block_day configuration
+                    if school_config:
+                        # Handle both raw config (with nested pipedrive) and processed config (flattened)
+                        if "pipedrive" in school_config:
+                            # Raw format from schools.json
+                            pipedrive_config = school_config.get("pipedrive", {})
+                            activity_types_config = pipedrive_config.get("activity_types", {})
+                            block_day_type = activity_types_config.get("block_day")
+                        else:
+                            # Processed/flattened format - no activity_types available
+                            pipedrive_config = {}
+                            activity_types_config = {}
+                            block_day_type = None
+
+
+                        if block_day_type and activity.type == block_day_type:
+                            # This is a blocking type - block entire day
+                            booked.add(f"{sg_date}_WHOLE_DAY")
+                            logger.info(f"✅ BLOCKING entire day {sg_date}: {activity.subject}")
+                        else:
+                            logger.info(f"⏩ NOT BLOCKING {sg_date}: {activity.subject}")
+                    else:
+                        # No school config provided - default to old behavior for backward compatibility
+                        booked.add(f"{sg_date}_WHOLE_DAY")
+                        logger.info(f"⚠️ BLOCKING entire day {sg_date} (no config): {activity.subject}")
                 else:
                     # Handle timed activities with duration
                     sg_date = activity.get_singapore_date()
@@ -248,17 +296,7 @@ async def get_blocked_slots(start_date: str, end_date: str, school_id: str) -> S
                         activity_end = activity_start + timedelta(hours=duration_hours)
                         
                         # Get tour slots from school configuration
-                        if school_id:
-                            from config import school_manager
-                            school_config = school_manager.get_school_config(school_id)
-                            if school_config:
-                                tour_slots = school_config.get("tour_slots", ["10:00", "13:00", "15:00"])
-                            else:
-                                logger.warning(f"No school config found for {school_id}, using default slots")
-                                tour_slots = ["10:00", "13:00", "15:00"]
-                        else:
-                            # Default tour slots if no school_id provided
-                            tour_slots = ["10:00", "13:00", "15:00"]
+                        tour_slots = school_config.get("tour_slots", ["10:00", "13:00", "15:00"])
                         
                         for slot_time in tour_slots:
                             # Create datetime for this tour slot

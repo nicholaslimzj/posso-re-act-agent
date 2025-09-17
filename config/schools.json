@@ -16,7 +16,8 @@
         },
         "activity_types": {
           "school_tour": "meeting",
-          "callback": "call"
+          "callback": "call",
+          "block_day": "block"
         },
         "custom_fields": {
           "child_name": "70a4df782bb3130c3898c88c6f5098d4cb1505d6",
@@ -47,7 +48,8 @@
         },
         "activity_types": {
           "school_tour": "meeting",
-          "callback": "call"
+          "callback": "call",
+          "block_day": "block_day"
         },
         "custom_fields": {
           "child_name": "584fa6b35023cdb33698309e4642dd84b13fe029",
