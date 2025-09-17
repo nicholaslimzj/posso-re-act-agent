@@ -6,8 +6,36 @@ from typing import Optional, Set, Dict, Any
 from datetime import datetime
 from loguru import logger
 import httpx
+import os
 
 from config import settings
+
+def get_pipedrive_api_key(school_id: Optional[str] = None) -> str:
+    """
+    Get Pipedrive API key for a specific school using environment variables.
+
+    Uses convention: PIPEDRIVE_API_KEY_{school_id}
+    Falls back to global PIPEDRIVE_API_KEY if school-specific env var not found.
+    """
+    logger.info(f"get_pipedrive_api_key called with school_id: {school_id}")
+
+    if school_id:
+        # Try school-specific environment variable
+        school_env_var = f"PIPEDRIVE_API_KEY_{school_id}"
+        school_api_key = os.getenv(school_env_var)
+
+        if school_api_key:
+            truncated_key = f"{school_api_key[:8]}...{school_api_key[-4:]}" if len(school_api_key) > 12 else "***"
+            logger.info(f"Using school-specific API key from {school_env_var}: {truncated_key}")
+            return school_api_key
+        else:
+            logger.info(f"No school-specific API key found for {school_env_var}")
+
+    # Fallback to global API key
+    api_key = settings.PIPEDRIVE_API_KEY
+    truncated_key = f"{api_key[:8]}...{api_key[-4:]}" if len(api_key) > 12 else "***"
+    logger.info(f"Using global Pipedrive API key: {truncated_key}")
+    return api_key
 
 
 def format_deal_title(
@@ -122,8 +150,10 @@ async def get_blocked_slots(start_date: str, end_date: str, school_id: Optional[
     try:
         # Build Pipedrive V1 API URL for activities with date range
         api_url = settings.PIPEDRIVE_API_URL  # https://api.pipedrive.com/v1
-        api_key = settings.PIPEDRIVE_API_KEY
-        
+
+        # Get API key using centralized function
+        api_key = get_pipedrive_api_key(school_id)
+
         url = f"{api_url}/activities?start_date={start_date}&end_date={end_date}&api_token={api_key}"
         
         async with httpx.AsyncClient() as client:
@@ -153,7 +183,6 @@ async def get_blocked_slots(start_date: str, end_date: str, school_id: Optional[
                 # Skip only if activity is marked as done/cancelled
                 if activity.is_cancelled():
                     continue  # Skip cancelled/done activities
-                    continue
                 
                 # Check if this is a whole-day activity (no specific time)
                 if not activity.due_time:
@@ -230,7 +259,8 @@ async def create_tour_activity(
     child_name: Optional[str] = None,
     child_dob: Optional[str] = None,
     enrollment_date: Optional[str] = None,
-    child_level: Optional[str] = None
+    child_level: Optional[str] = None,
+    school_id: Optional[str] = None
 ) -> TourBookingResponse:
     """
     Create a tour activity in Pipedrive.
@@ -275,9 +305,10 @@ async def create_tour_activity(
             due_time=utc_time,
             duration="01:00"
         )
-        
+
         api_v2_url = settings.PIPEDRIVE_APIV2_URL
-        api_key = settings.PIPEDRIVE_API_KEY
+        # Get API key using centralized function
+        api_key = get_pipedrive_api_key(school_id)
         
         url = f"{api_v2_url}/api/v2/activities?api_token={api_key}"
         
@@ -324,7 +355,8 @@ async def create_tour_activity(
 async def cancel_tour_activity(
     activity_id: int,
     parent_name: Optional[str] = None,
-    reason: Optional[str] = None
+    reason: Optional[str] = None,
+    school_id: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Cancel an existing tour activity in Pipedrive.
@@ -339,7 +371,8 @@ async def cancel_tour_activity(
     """
     try:
         api_v2_url = settings.PIPEDRIVE_APIV2_URL
-        api_key = settings.PIPEDRIVE_API_KEY
+        # Get API key using centralized function
+        api_key = get_pipedrive_api_key(school_id)
         
         url = f"{api_v2_url}/api/v2/activities/{activity_id}?api_token={api_key}"
         
@@ -381,7 +414,8 @@ async def reschedule_tour_activity(
     tour_date: str,
     tour_time: str,
     child_name: Optional[str] = None,
-    child_level: Optional[str] = None
+    child_level: Optional[str] = None,
+    school_id: Optional[str] = None
 ) -> TourBookingResponse:
     """
     Reschedule an existing tour activity in Pipedrive.
@@ -417,9 +451,10 @@ async def reschedule_tour_activity(
             due_time=utc_time,
             subject=subject
         )
-        
+
         api_v2_url = settings.PIPEDRIVE_APIV2_URL
-        api_key = settings.PIPEDRIVE_API_KEY
+        # Get API key using centralized function
+        api_key = get_pipedrive_api_key(school_id)
         
         url = f"{api_v2_url}/api/v2/activities/{activity_id}?api_token={api_key}"
         
@@ -490,7 +525,8 @@ def calculate_child_level(birth_date: str, enrollment_date: str) -> str:
 async def create_or_get_person(
     name: str,
     phone: Optional[str] = None,
-    email: Optional[str] = None
+    email: Optional[str] = None,
+    school_id: Optional[str] = None
 ) -> Optional[int]:
     """
     Create a person in Pipedrive or get existing person ID.
@@ -512,10 +548,11 @@ async def create_or_get_person(
             emails=[email] if email else None
         )
         # Request prepared with validated data
-        
+
         api_v2_url = settings.PIPEDRIVE_APIV2_URL
-        api_key = settings.PIPEDRIVE_API_KEY
-        
+        # Get API key using centralized function
+        api_key = get_pipedrive_api_key(school_id)
+
         url = f"{api_v2_url}/api/v2/persons?api_token={api_key}"
         
         async with httpx.AsyncClient() as client:
@@ -562,7 +599,7 @@ async def create_enrollment_deal(
     """
     try:
         # First, create or get the person (parent)
-        person_id = await create_or_get_person(parent_name, parent_phone, parent_email)
+        person_id = await create_or_get_person(parent_name, parent_phone, parent_email, school_id)
         if not person_id:
             return {
                 "status": "error",
@@ -603,9 +640,10 @@ async def create_enrollment_deal(
             stage_id=stage_id,
             custom_fields=custom_fields if custom_fields else None
         )
-        
+
         api_v2_url = settings.PIPEDRIVE_APIV2_URL
-        api_key = settings.PIPEDRIVE_API_KEY
+        # Get API key using centralized function
+        api_key = get_pipedrive_api_key(school_id)
         
         url = f"{api_v2_url}/api/v2/deals?api_token={api_key}"
         
@@ -642,7 +680,7 @@ async def create_enrollment_deal(
 async def add_note_to_deal(
     deal_id: int,
     content: str,
-    school_id: str
+    school_id: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Add a note to a Pipedrive deal.
@@ -657,7 +695,8 @@ async def add_note_to_deal(
     """
     try:
         api_url = settings.PIPEDRIVE_API_URL
-        api_key = settings.PIPEDRIVE_API_KEY
+        # Get API key using centralized function
+        api_key = get_pipedrive_api_key(school_id)
         
         url = f"{api_url}/notes?api_token={api_key}"
         

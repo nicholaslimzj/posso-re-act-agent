@@ -179,6 +179,7 @@ class ContextLoader:
     def _build_school_config(self, school_id: str, inbox_id: int) -> Dict[str, Any]:
         """Build school configuration dictionary"""
         return {
+            "school_id": school_id,  # Add school_id for API key lookup
             "school_name": self.school_manager.get_school_name(school_id),
             "branch_phone": self.school_manager.get_school_phone(school_id),
             "address": self.school_manager.get_school_address(school_id),

@@ -102,7 +102,6 @@ def check_tour_slots(
                 # Check if slot matches time preference
                 if not _matches_time_preference(slot_time, preferences.get("time_preference") if preferences else None):
                     continue  # Slot doesn't match time preference
-                    continue
                 
                 # Check if slot is already blocked
                 slot_key = f"{date_str}_{slot_time}"

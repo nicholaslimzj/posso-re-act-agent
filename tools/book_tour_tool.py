@@ -173,7 +173,8 @@ def book_or_reschedule_tour(
                 child_name=persistent_context.child_name,
                 child_dob=persistent_context.child_dob,
                 enrollment_date=persistent_context.preferred_enrollment_date,
-                child_level=child_level
+                child_level=child_level,
+                school_id=school_id
             ))
             
             # Update context with booking details
@@ -213,7 +214,8 @@ def book_or_reschedule_tour(
                 tour_date=tour_date,
                 tour_time=tour_time,
                 child_name=persistent_context.child_name,
-                child_level=child_level
+                child_level=child_level,
+                school_id=school_id
             ))
             
             # Update context with new booking details

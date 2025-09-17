@@ -142,6 +142,17 @@ class MessageHandler:
                     chatwoot_additional_params=chatwoot_additional_params,
                     recent_messages=recent_messages
                 )
+
+                # Debug: Check what context was loaded
+                logger.info(f"Context loaded - runtime: {context.runtime}")
+                logger.info(f"School config: {context.runtime.school_config if context.runtime else 'No runtime'}")
+
+                # Set current school context for settings to use
+                if context.runtime and context.runtime.school_config:
+                    settings.set_current_school_config(context.runtime.school_config)
+                    logger.info(f"Set school context for {context.runtime.school_config.get('school_id')}")
+                else:
+                    logger.warning("No school context available - runtime or school_config is None")
                 
                 # Process message with ReAct agent
                 result = self._process_with_react(
