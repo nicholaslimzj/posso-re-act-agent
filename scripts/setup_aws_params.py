@@ -30,7 +30,7 @@ def upload_env_to_parameter_store(region='ap-southeast-1'):
         'CHATWOOT_ACCOUNT_ID': '/posso/chatwoot-account-id',
         'PIPEDRIVE_API_URL': '/posso/pipedrive-api-url',
         'PIPEDRIVE_APIV2_URL': '/posso/pipedrive-apiv2-url',
-        'PIPEDRIVE_API_KEY': '/posso/pipedrive-key',
+        'PIPEDRIVE_API_KEYS_JSON': '/posso/pipedrive-api-keys',
         'LANGCHAIN_TRACING_V2': '/posso/langchain-tracing',
         'LANGCHAIN_API_KEY': '/posso/langchain-key'
     }

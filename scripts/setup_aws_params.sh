@@ -9,10 +9,10 @@ echo "🚀 Setting up AWS Parameter Store from .env file..."
 echo "📋 Extracting AWS credentials..."
 
 AWS_PROFILE=posso
-AWS_ACCESS_KEY_ID=$(aws configure get aws_access_key_id 2>/dev/null || echo "")
-AWS_SECRET_ACCESS_KEY=$(aws configure get aws_secret_access_key 2>/dev/null || echo "")
-AWS_DEFAULT_REGION=$(aws configure get region 2>/dev/null || echo "ap-southeast-1")
-AWS_SESSION_TOKEN=$(aws configure get aws_session_token 2>/dev/null || echo "")
+AWS_ACCESS_KEY_ID=$(aws configure get aws_access_key_id --profile $AWS_PROFILE 2>/dev/null || echo "")
+AWS_SECRET_ACCESS_KEY=$(aws configure get aws_secret_access_key --profile $AWS_PROFILE 2>/dev/null || echo "")
+AWS_DEFAULT_REGION=$(aws configure get region --profile $AWS_PROFILE 2>/dev/null || echo "ap-southeast-1")
+AWS_SESSION_TOKEN=$(aws configure get aws_session_token --profile $AWS_PROFILE 2>/dev/null || echo "")
 
 # Check if credentials were found
 if [ -z "$AWS_ACCESS_KEY_ID" ] || [ -z "$AWS_SECRET_ACCESS_KEY" ]; then

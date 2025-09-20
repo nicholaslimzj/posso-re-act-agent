@@ -27,9 +27,10 @@ class Settings:
     PIPEDRIVE_API_URL: str = os.getenv("PIPEDRIVE_API_URL", "https://api.pipedrive.com/v1")
     PIPEDRIVE_APIV2_URL: str = os.getenv("PIPEDRIVE_APIV2_URL", "https://api.pipedrive.com")
 
-    # Load all school-specific Pipedrive API keys from JSON
+    # Load all school-specific Pipedrive API keys from base64-encoded JSON
+    import base64
     PIPEDRIVE_API_KEYS: dict = json.loads(
-        os.getenv("PIPEDRIVE_API_KEYS_JSON")
+        base64.b64decode(os.getenv("PIPEDRIVE_API_KEYS_JSON", "e30=")).decode('utf-8')  # e30= is "{}"
     )
 
     # Chatwoot Configuration
