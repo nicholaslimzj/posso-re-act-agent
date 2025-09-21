@@ -3,33 +3,26 @@ Assign to Human Tool - Assigns conversation to human agent in Chatwoot
 """
 
 from typing import Dict, Any
-from enum import Enum
 from loguru import logger
 from config import settings
 from context.models import FullContext
 from integrations.chatwoot import assign_conversation_to_agent
 
 
-class HandoverMode(Enum):
-    """Modes for handling human assignment"""
-    ESCALATION = "escalation"  # Notify user that they're being connected
-    SILENT = "silent"          # Quiet handover, don't notify user
 
 
 async def assign_to_human_tool(
     context: FullContext,
-    reason: str = "User requested human assistance",
-    mode: HandoverMode = HandoverMode.ESCALATION
+    reason: str = "User requested human assistance"
 ) -> Dict[str, Any]:
     """
     Assign the current conversation to a human agent in Chatwoot.
+    This function is used for manual escalations where the bot determines it needs human help.
+    Silent handovers are handled systematically elsewhere.
 
     Args:
         context: Full context with conversation and school information
         reason: Reason for the assignment (for logging/notes)
-        mode: How to handle the assignment
-            - HandoverMode.ESCALATION: Notify user that they're being connected (default)
-            - HandoverMode.SILENT: Silent handover, don't notify user (when agent already involved)
 
     Returns:
         Dict with status and details about the assignment
@@ -75,28 +68,16 @@ async def assign_to_human_tool(
         )
 
         if result.get("success"):
-            logger.info(f"Successfully assigned conversation {conversation_id} to agent {agent_id}. Mode: {mode}, Reason: {reason}")
+            logger.info(f"Successfully assigned conversation {conversation_id} to agent {agent_id}. Reason: {reason}")
 
-            if mode == HandoverMode.SILENT:
-                # Silent handover - don't notify user, skip response crafting
-                return {
-                    "status": "success",
-                    "message": "",  # Empty message signals to skip response crafting
-                    "action_taken": "silent_handover",
-                    "agent_id": agent_id,
-                    "reason": reason,
-                    "mode": mode.value
-                }
-            else:
-                # Escalation - notify user
-                return {
-                    "status": "success",
-                    "action_taken": "escalation",
-                    "agent_id": agent_id,
-                    "reason": reason,
-                    "mode": mode.value,
-                    "response_hint": "Inform the user that you're connecting them with the education team who will be able to help them. DO NOT offer any further assistance from yourself as the conversation is being transferred to a human agent and you will no longer be responding."
-                }
+            # Manual escalation - notify user
+            return {
+                "status": "success",
+                "action_taken": "escalation",
+                "agent_id": agent_id,
+                "reason": reason,
+                "response_hint": "Inform the user that you're connecting them with the education team who will be able to help them. DO NOT offer any further assistance from yourself as the conversation is being transferred to a human agent and you will no longer be responding. Do not repeat information that was already shared in this conversation."
+            }
         else:
             return {
                 "status": "error",

@@ -158,7 +158,8 @@ def check_tour_slots(
             "date_range": {
                 "start": start_date.strftime("%Y-%m-%d"),
                 "end": end_date.strftime("%Y-%m-%d")
-            }
+            },
+            "response_hint": "Show maximum 4 available dates to avoid overwhelming parents. Use WhatsApp bold formatting with single asterisks like *Monday, September 30* not **Monday, September 30**. Present dates in a clear, easy-to-read format."
         }
         
     except Exception as e:

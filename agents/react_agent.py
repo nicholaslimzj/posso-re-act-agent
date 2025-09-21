@@ -10,21 +10,19 @@ from langchain_core.messages import RemoveMessage
 from typing import Annotated
 from operator import add
 from langgraph.prebuilt import ToolNode
-from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage, ToolMessage
+from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage
 from langchain_core.tools import BaseTool, tool
 from langchain_openai import ChatOpenAI
 from loguru import logger
 
 from config import settings
 from context import FullContext, redis_manager, format_context_for_prompt, format_active_task_context
-from agents.response_crafting_agent import ResponseCraftingAgent
 
 
 class ReActState(TypedDict):
     """State for a single ReAct invocation"""
     messages: Annotated[List[BaseMessage], add]  # Messages are accumulated via addition
     final_response: Optional[str]  # The response to return
-    crafted_response: Optional[str]  # The polished response from ResponseCraftingAgent
     tools_used: List[str]  # Track which tools were called
     reasoning_summary: str  # Human-readable summary
     cycle_count: int
@@ -53,7 +51,6 @@ class ReActAgent:
         self.llm = self._setup_llm()
         self.base_tools = self._setup_base_tools()
         self.tools = self.base_tools  # Will be updated with context-aware tools
-        self.response_crafter = ResponseCraftingAgent()
         self.graph = self._build_graph()
     
     def _setup_llm(self) -> ChatOpenAI:
@@ -307,7 +304,29 @@ class ReActAgent:
                 has_tool_calls = bool(getattr(response, 'tool_calls', None))
                 
                 # Extract final response if no tool calls
-                final_response = None if has_tool_calls else response.content
+                if has_tool_calls:
+                    final_response = None
+                else:
+                    # Check for silent handover in recent tool results
+                    silent_handover = False
+                    for msg in state.get("messages", [])[-5:]:  # Check last 5 messages
+                        if hasattr(msg, 'content') and isinstance(msg.content, str):
+                            try:
+                                import json
+                                tool_result = json.loads(msg.content)
+                                if tool_result.get("mode") == "silent":
+                                    silent_handover = True
+                                    break
+                            except (json.JSONDecodeError, AttributeError):
+                                continue
+
+                    if silent_handover:
+                        logger.info("Silent handover detected - returning empty response")
+                        final_response = ""
+                    else:
+                        # This is the final response - it should already follow our guidelines
+                        # since we included response rules in the system prompt
+                        final_response = response.content
                 
                 # Update reasoning summary
                 if has_tool_calls:
@@ -337,10 +356,10 @@ class ReActAgent:
                 }
         
         def should_continue_func(state: ReActState) -> str:
-            """Decide whether to continue with tools or craft response"""
+            """Decide whether to continue with tools or end"""
             if state["should_continue"] and state["cycle_count"] < settings.MAX_REASONING_CYCLES:
                 return "tools"
-            return "response_crafting"
+            return "end"
         
         def track_tools_node(state: ReActState) -> Dict[str, Any]:
             """Track which tools were used"""
@@ -358,57 +377,6 @@ class ReActAgent:
             
             return {"tools_used": tools_used}
         
-        def response_crafting_node(state: ReActState) -> Dict[str, Any]:
-            """Craft the final response using ResponseCraftingAgent"""
-            try:
-                final_response = state.get("final_response", "")
-                tools_used = state.get("tools_used", [])
-
-                # Check if any tool returned a silent handover mode
-                messages = state.get("messages", [])
-                for msg in messages:
-                    if isinstance(msg, ToolMessage):
-                        try:
-                            import json
-                            tool_result = json.loads(msg.content)
-                            if tool_result.get("mode") == "silent":
-                                logger.info("Silent handover detected - skipping response crafting")
-                                return {"crafted_response": ""}  # Return empty response for silent handover
-                        except (json.JSONDecodeError, AttributeError):
-                            # If content isn't JSON or doesn't have mode, continue
-                            continue
-
-                # Get context and history from state metadata (if available)
-                # These would need to be passed through the graph invoke call
-                context = state.get("context")
-                chatwoot_history = state.get("chatwoot_history")
-                message = state.get("original_message", "")
-
-                # Get complete message thread (skip the first SystemMessage)
-                complete_messages = state.get("messages", [])[1:] if state.get("messages") else []
-
-                if context and final_response:
-                    # Craft response with complete conversation context
-                    crafted_response = self.response_crafter.craft_response(
-                        original_response=final_response,
-                        tools_used=tools_used,
-                        context=context,
-                        chatwoot_history=chatwoot_history,
-                        complete_messages=complete_messages,
-                        user_original_message=message
-                    )
-                    
-                    logger.info(f"Response crafted successfully")
-                    return {"crafted_response": crafted_response}
-                else:
-                    # Fallback to original response
-                    logger.warning("Missing context for response crafting, using original response")
-                    return {"crafted_response": final_response}
-                    
-            except Exception as e:
-                logger.error(f"Error in response crafting: {e}")
-                # Fallback to original response
-                return {"crafted_response": state.get("final_response", "")}
         
         # Build the graph
         workflow = StateGraph(ReActState)
@@ -417,14 +385,12 @@ class ReActAgent:
         workflow.add_node("reasoning", reasoning_node)
         workflow.add_node("tools", ToolNode(self.tools))
         workflow.add_node("track_tools", track_tools_node)
-        workflow.add_node("response_crafting", response_crafting_node)
-        
+
         # Define edges
         workflow.set_entry_point("reasoning")
-        workflow.add_conditional_edges("reasoning", should_continue_func)
+        workflow.add_conditional_edges("reasoning", should_continue_func, {"tools": "tools", "end": END})
         workflow.add_edge("tools", "track_tools")
         workflow.add_edge("track_tools", "reasoning")
-        workflow.add_edge("response_crafting", END)
         
         return workflow.compile()
     
@@ -473,7 +439,6 @@ class ReActAgent:
                     HumanMessage(content=message)
                 ],
                 "final_response": None,
-                "crafted_response": None,
                 "tools_used": [],
                 "reasoning_summary": "Starting reasoning...",
                 "cycle_count": 1,
@@ -495,8 +460,8 @@ class ReActAgent:
             # Run the ReAct graph
             final_state = self.graph.invoke(initial_state)
             
-            # Extract results - prefer crafted response over final response
-            response = final_state.get("crafted_response") or final_state.get("final_response", "I couldn't generate a response.")
+            # Extract results - use final response directly
+            response = final_state.get("final_response", "I couldn't generate a response.")
             
             # Build reasoning summary for Redis (simplified)
             reasoning_summary = {
@@ -544,6 +509,21 @@ class ReActAgent:
             "- Stay patient and helpful, especially when parents are unsure or take time to decide",
             "- Use natural, conversational language that feels human",
             "- Focus on being helpful and supportive throughout the interaction",
+            "",
+            "## Response Guidelines:",
+            "- **CRITICAL**: Don't repeat information already shared in this conversation - check conversation history first",
+            "- **GREETING RULE**: Only introduce yourself if this appears to be the first interaction - otherwise go straight to helping",
+            "- **When introducing yourself**: 'Hi [name]! I'm Pocco from Posso Preschool. I can help you book a school tour, schedule a callback with our education team, or try to answer some questions about our school.'",
+            "- **TOOL HINTS**: If any tool result contains a 'response_hint' field, follow that guidance carefully",
+            "- **NO FUTURE PROMISES**: Never say you'll do something next or promise to follow up - only respond to what just happened",
+            "- Use names naturally only when contextually appropriate (Preferred Name if available, otherwise WhatsApp name)",
+            "- NEVER repeatedly offer tours/callbacks if you've already suggested them in this conversation",
+            "",
+            "## WhatsApp Formatting:",
+            "- Use *text* for bold (not **text**)",
+            "- Use _text_ for italic (not *text*)",
+            "- Use WhatsApp formatting for dates, times, and emphasis",
+            "- Example: *Monday, September 30* not **Monday, September 30**",
             "",
             "## When to Connect with Human Team",
             "- If user explicitly asks to speak with someone human, use assign_to_human_agent_tool",

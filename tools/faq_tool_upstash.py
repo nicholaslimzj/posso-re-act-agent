@@ -89,7 +89,8 @@ async def get_faq_answer_upstash_async(question: str) -> Dict[str, Any]:
                 "answer": answer,
                 "confidence": best_score,
                 "source": "FAQ",
-                "matches_count": len(matches)
+                "matches_count": len(matches),
+                "response_hint": "Check if this information was already shared in the conversation history. If similar information was given before, politely acknowledge their question and admit you don't have any additional details beyond what was already shared - suggest they speak with the education team for more specific information."
             }
             
     except httpx.TimeoutException:

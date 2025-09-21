@@ -148,14 +148,23 @@ class MessageHandler:
                     logger.info("Last outgoing message was from human agent - performing silent assignment")
 
 
-                    from tools.assign_to_human_tool import assign_to_human_tool, HandoverMode
+                    from integrations.chatwoot import assign_conversation_to_agent
                     import asyncio
 
-                    assignment_result = asyncio.run(assign_to_human_tool(
-                        context=context,
-                        reason="Continuing conversation with human agent",
-                        mode=HandoverMode.SILENT
-                    ))
+                    # Get assignment details from context
+                    chatwoot_config = context.runtime.school_config.get("chatwoot", {})
+                    agent_id = chatwoot_config.get("agent_id_for_handover")
+
+                    if agent_id:
+                        assignment_result = asyncio.run(assign_conversation_to_agent(
+                            account_id=settings.CHATWOOT_ACCOUNT_ID,
+                            conversation_id=int(context.runtime.conversation_id),
+                            agent_id=agent_id,
+                            api_key=settings.CHATWOOT_API_KEY,
+                            reason="Continuing conversation with human agent"
+                        ))
+                    else:
+                        assignment_result = {"success": False, "error": "No agent ID configured"}
 
                     if assignment_result.get("status") == "success":
                         # Save context and return without invoking LLM
