@@ -146,3 +146,65 @@ async def update_contact_attributes(
     except Exception as e:
         logger.error(f"Error updating contact: {e}")
         return {"success": False, "error": str(e)}
+
+
+async def assign_conversation_to_agent(
+    account_id: int,
+    conversation_id: int,
+    agent_id: int,
+    api_key: str,
+    reason: str = None
+) -> Dict[str, Any]:
+    """
+    Assign a conversation to a specific agent in Chatwoot.
+
+    Args:
+        account_id: Chatwoot account ID
+        conversation_id: Conversation ID
+        agent_id: Agent ID to assign to
+        api_key: Chatwoot API access token
+        reason: Optional reason for assignment
+
+    Returns:
+        Response data from Chatwoot
+    """
+    try:
+        base_url = settings.CHATWOOT_API_URL
+        url = f"{base_url}/api/v1/accounts/{account_id}/conversations/{conversation_id}/assignments"
+
+        headers = {
+            "api_access_token": api_key,
+            "Content-Type": "application/json"
+        }
+
+        payload = {
+            "assignee_id": agent_id
+        }
+
+        async with httpx.AsyncClient() as client:
+            response = await client.post(url, json=payload, headers=headers)
+
+            if response.status_code not in [200, 201]:
+                logger.error(f"Failed to assign conversation {conversation_id} to agent {agent_id}: {response.status_code} - {response.text}")
+                return {"success": False, "error": response.text}
+
+            logger.info(f"Successfully assigned conversation {conversation_id} to agent {agent_id}")
+
+            # Add assignment note if reason is provided
+            if reason:
+                note_content = f"🤖 Conversation assigned to human agent (ID: {agent_id})\nReason: {reason}"
+                note_result = await send_message(
+                    account_id=account_id,
+                    conversation_id=conversation_id,
+                    message=note_content,
+                    api_key=api_key,
+                    private=True
+                )
+                if not note_result.get("success"):
+                    logger.warning(f"Failed to add assignment note: {note_result.get('error')}")
+
+            return {"success": True, "data": response.json()}
+
+    except Exception as e:
+        logger.error(f"Error assigning conversation to agent: {e}")
+        return {"success": False, "error": str(e)}

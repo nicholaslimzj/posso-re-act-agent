@@ -249,7 +249,8 @@ class FAQTool:
                 "status": "success",
                 "answer": combined_answer,
                 "related_topics": related_topics[:3],
-                "similarity_scores": [chunk["similarity"] for chunk in relevant_chunks]
+                "similarity_scores": [chunk["similarity"] for chunk in relevant_chunks],
+                "response_hint": "Check if this information was already shared in the conversation history. If similar information was given before, politely acknowledge their question and admit you don't have any additional details beyond what was already shared - suggest they speak with the education team for more specific information."
             }
             
         except Exception as e:

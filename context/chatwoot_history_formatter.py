@@ -7,15 +7,16 @@ import pytz
 from loguru import logger
 
 
-def format_chatwoot_messages(messages: List[Dict[str, Any]], limit: int = 14, exclude_last: bool = True) -> str:
+def format_chatwoot_messages(messages: List[Dict[str, Any]], limit: int = 14, exclude_last: bool = True, bot_agent_id: Optional[int] = None) -> str:
     """
     Format Chatwoot messages into readable conversation history.
-    
+
     Args:
         messages: List of message dictionaries from Chatwoot
         limit: Maximum number of messages to include (default 14)
         exclude_last: If True, excludes the last user message (since it becomes HumanMessage)
-        
+        bot_agent_id: Agent ID of the bot to distinguish from human agents
+
     Returns:
         Formatted conversation string
     """
@@ -77,12 +78,27 @@ def format_chatwoot_messages(messages: List[Dict[str, Any]], limit: int = 14, ex
                     formatted_lines.append(f"User [{time_str}]: {content}")
                 else:
                     formatted_lines.append(f"User: {content}")
-                
+
             elif msg.get("message_type") == 1:  # Outgoing from agent
-                if time_str:
-                    formatted_lines.append(f"Assistant [{time_str}]: {content}")
+                # Distinguish between bot (Assistant) and human (Agent) messages
+                sender = msg.get("sender", {})
+                sender_id = sender.get("id") if sender else None
+
+                # Determine if message is from bot or human based on sender ID
+                if bot_agent_id and sender_id == bot_agent_id:
+                    # This is a bot message (matches the configured bot agent ID)
+                    label = "Assistant"
+                elif sender_id and sender_id != bot_agent_id:
+                    # This is a human agent message (different agent ID)
+                    label = "Agent"
                 else:
-                    formatted_lines.append(f"Assistant: {content}")
+                    # Fallback: if no bot_agent_id provided or no sender, assume it's assistant
+                    label = "Assistant"
+
+                if time_str:
+                    formatted_lines.append(f"{label} [{time_str}]: {content}")
+                else:
+                    formatted_lines.append(f"{label}: {content}")
         
         # Join with newlines for readability
         if formatted_lines:

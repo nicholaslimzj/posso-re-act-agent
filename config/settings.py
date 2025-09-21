@@ -9,7 +9,7 @@ class Settings:
     # OpenRouter Configuration
     OPENROUTER_API_KEY: str = os.getenv("OPENROUTER_API_KEY", "")
     MODEL_NAME: str = os.getenv("MODEL_NAME", "openai/gpt-4o-mini")
-    RESPONSE_CRAFTING_MODEL: str = os.getenv("RESPONSE_CRAFTING_MODEL", "meta-llama/llama-4-maverick")
+    RESPONSE_CRAFTING_MODEL: str = os.getenv("RESPONSE_CRAFTING_MODEL", "openai/gpt-4o-mini")
 
     # Redis Configuration
     REDIS_URL: str = os.getenv("REDIS_URL", "redis://localhost:6379")

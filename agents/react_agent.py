@@ -10,13 +10,13 @@ from langchain_core.messages import RemoveMessage
 from typing import Annotated
 from operator import add
 from langgraph.prebuilt import ToolNode
-from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage
+from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage, ToolMessage
 from langchain_core.tools import BaseTool, tool
 from langchain_openai import ChatOpenAI
 from loguru import logger
 
 from config import settings
-from context import FullContext, redis_manager
+from context import FullContext, redis_manager, format_context_for_prompt, format_active_task_context
 from agents.response_crafting_agent import ResponseCraftingAgent
 
 
@@ -91,6 +91,7 @@ class ReActAgent:
         from tools.book_tour_tool import book_or_reschedule_tour
         from tools.callback_tool import request_callback
         from tools.manage_tour_tool import manage_existing_tour
+        from tools.assign_to_human_tool import assign_to_human_tool
         
         @tool
         def update_contact_info_tool(
@@ -221,8 +222,29 @@ class ReActAgent:
                 new_time=new_time,
                 reason=reason
             )
-        
-        return [update_contact_info_tool, check_tour_availability_tool, book_tour_tool, request_callback_tool, manage_tour_tool]
+
+        @tool
+        def assign_to_human_agent_tool(
+            reason: str = "User needs assistance beyond bot capabilities"
+        ) -> dict:
+            """
+            Assign conversation to a human agent when the bot cannot adequately help.
+            Use this tool ONLY when:
+            - Questions are too complex or specific for the bot to handle
+            - User needs detailed discussion beyond FAQ answers
+            - System errors prevent you from helping effectively
+            - You determine human expertise is required
+
+            Args:
+                reason: Specific reason why human assistance is needed
+
+            Returns:
+                Confirmation that conversation has been assigned to human agent
+            """
+            import asyncio
+            return asyncio.run(assign_to_human_tool(context, reason=reason))
+
+        return [update_contact_info_tool, check_tour_availability_tool, book_tour_tool, request_callback_tool, manage_tour_tool, assign_to_human_agent_tool]
     
     def _build_graph(self) -> StateGraph:
         """Build the ReAct reasoning graph"""
@@ -341,31 +363,42 @@ class ReActAgent:
             try:
                 final_response = state.get("final_response", "")
                 tools_used = state.get("tools_used", [])
-                
+
+                # Check if any tool returned a silent handover mode
+                messages = state.get("messages", [])
+                for msg in messages:
+                    if isinstance(msg, ToolMessage):
+                        try:
+                            import json
+                            tool_result = json.loads(msg.content)
+                            if tool_result.get("mode") == "silent":
+                                logger.info("Silent handover detected - skipping response crafting")
+                                return {"crafted_response": ""}  # Return empty response for silent handover
+                        except (json.JSONDecodeError, AttributeError):
+                            # If content isn't JSON or doesn't have mode, continue
+                            continue
+
                 # Get context and history from state metadata (if available)
                 # These would need to be passed through the graph invoke call
                 context = state.get("context")
-                chatwoot_history = state.get("chatwoot_history") 
+                chatwoot_history = state.get("chatwoot_history")
                 message = state.get("original_message", "")
-                
+
                 # Get complete message thread (skip the first SystemMessage)
                 complete_messages = state.get("messages", [])[1:] if state.get("messages") else []
-                
+
                 if context and final_response:
-                    # Detect language from original message
-                    target_language = self.response_crafter.detect_language(message)
-                    
                     # Craft response with complete conversation context
                     crafted_response = self.response_crafter.craft_response(
                         original_response=final_response,
                         tools_used=tools_used,
                         context=context,
                         chatwoot_history=chatwoot_history,
-                        target_language=target_language,
-                        complete_messages=complete_messages
+                        complete_messages=complete_messages,
+                        user_original_message=message
                     )
                     
-                    logger.info(f"Response crafted successfully in {target_language}")
+                    logger.info(f"Response crafted successfully")
                     return {"crafted_response": crafted_response}
                 else:
                     # Fallback to original response
@@ -512,8 +545,15 @@ class ReActAgent:
             "- Use natural, conversational language that feels human",
             "- Focus on being helpful and supportive throughout the interaction",
             "",
+            "## When to Connect with Human Team",
+            "- If user explicitly asks to speak with someone human, use assign_to_human_agent_tool",
+            "- If questions are beyond FAQ capabilities AND user shows no interest in booking tours or scheduling callbacks, use assign_to_human_agent_tool",
+            "- If system errors prevent you from helping effectively, use assign_to_human_agent_tool",
+            "",
+            "**IMPORTANT**: Always try to complete your primary job (booking tours/callbacks) first. Only escalate if user refuses these options or you truly cannot help.",
+            ""
             "## Available Tools:",
-            "1. **get_faq_answer_tool**: Use this FIRST for any questions about:",
+            "1. **get_faq_answer_tool**: Use this for any questions about:",
             "   - School programs, curriculum, or educational approach",
             "   - Fees, tuition, or costs",
             "   - Tour availability or scheduling",
@@ -572,85 +612,17 @@ class ReActAgent:
             "- The system calculates the appropriate program level from DOB + enrollment date"
         ]
         
-        # Add current context information
+        # Add current context information using shared formatter
         prompt_parts.append("\n## Current Context:")
-        
-        # Add active task context if in progress
-        if context.active.active_task_type:
-            prompt_parts.append(f"**Active Task**: {context.active.active_task_type.value}")
-            if context.active.active_task_status:
-                prompt_parts.append(f"**Task Status**: {context.active.active_task_status.value}")
-            
-            # Add previous tool response context for intelligent continuation
-            if context.active.active_task_data and "last_tool_response" in context.active.active_task_data:
-                # Check if data is fresh (not older than 30 minutes)
-                task_timestamp = context.active.active_task_data.get("timestamp")
-                is_fresh = True
-                if task_timestamp:
-                    from datetime import datetime, timedelta
-                    try:
-                        task_time = datetime.fromisoformat(task_timestamp.replace('Z', '+00:00'))
-                        now = datetime.utcnow()
-                        is_fresh = (now - task_time) < timedelta(minutes=30)
-                    except (ValueError, TypeError):
-                        pass  # If timestamp parsing fails, assume it's fresh
-                
-                if is_fresh:
-                    tool_response = context.active.active_task_data["last_tool_response"]
-                    prompt_parts.append("\n## Context from Previous Interaction:")
-                    prompt_parts.append(f"**Last tool used**: {tool_response.get('tool', 'unknown')}")
-                    prompt_parts.append(f"**Tool response**: {tool_response.get('status', 'unknown')}")
-                    prompt_parts.append(f"**Progress**: {tool_response.get('progress', 'unknown')}")
-                    
-                    if tool_response.get("prompt_for"):
-                        if isinstance(tool_response["prompt_for"], list):
-                            fields_needed = ", ".join(tool_response["prompt_for"])
-                        else:
-                            fields_needed = str(tool_response["prompt_for"])
-                        prompt_parts.append(f"**Still need**: {fields_needed}")
-                    
-                    if tool_response.get("stage"):
-                        prompt_parts.append(f"**Current stage**: {tool_response['stage']}")
-                    
-                    prompt_parts.append(f"**Next step**: {tool_response.get('next_action', 'Continue with the workflow')}")
-                    
-                    prompt_parts.append("\n**Consider the user's current message:**")
-                    prompt_parts.append("- Are they providing the requested information? → Continue with the workflow")
-                    prompt_parts.append("- Are they asking a related question while still interested? → Answer it briefly")
-                    prompt_parts.append("- Have they moved to a different topic entirely? → Handle the new request")
-                
-            elif context.active.active_task_data:
-                prompt_parts.append(f"**Task Data**: {context.active.active_task_data}")
-        
-        # Add persistent context - ALWAYS show key fields
-        prompt_parts.append("\n**Parent Information:**")
-        prompt_parts.append(f"- Preferred Name: {context.persistent.parent_preferred_name or 'Unknown'}")
-        prompt_parts.append(f"- Preferred Email: {context.persistent.parent_preferred_email or 'Unknown'}")
-        prompt_parts.append(f"- Preferred Phone: {context.persistent.parent_preferred_phone or 'Unknown'}")
-        
-        if context.runtime.whatsapp_name:
-            prompt_parts.append(f"- WhatsApp Name: {context.runtime.whatsapp_name}")
-        if context.runtime.whatsapp_phone:
-            prompt_parts.append(f"- WhatsApp Phone: {context.runtime.whatsapp_phone}")
-        
-        prompt_parts.append("\n**Child Information:**")
-        prompt_parts.append(f"- Name: {context.persistent.child_name or 'Unknown'}")
-        prompt_parts.append(f"- Date of Birth: {context.persistent.child_dob or 'Unknown'}")
-        prompt_parts.append(f"- Preferred Enrollment: {context.persistent.preferred_enrollment_date or 'Unknown'}")
-        
-        if context.persistent.pipedrive_deal_id:
-            prompt_parts.append(f"\n**Pipedrive Deal ID**: {context.persistent.pipedrive_deal_id}")
-        
-        # Add tour information if scheduled
-        if context.persistent.tour_scheduled_date:
-            prompt_parts.append(f"\n**Tour Scheduled**: {context.persistent.tour_scheduled_date} at {context.persistent.tour_scheduled_time}")
-        
-        # Add school configuration
-        if context.runtime.school_config:
-            config = context.runtime.school_config
-            prompt_parts.append(f"\n**School Branch**: {config.get('school_name', 'Unknown')}")
-            if config.get('address'):
-                prompt_parts.append(f"**Location**: {config['address']}")
+
+        # Add active task context
+        active_task_parts = format_active_task_context(context)
+        if active_task_parts:
+            prompt_parts.extend(active_task_parts)
+
+        # Add persistent context using shared formatter
+        prompt_parts.append("\n")
+        prompt_parts.extend(format_context_for_prompt(context))
         
         # Add conversation history if available
         if chatwoot_history:

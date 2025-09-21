@@ -142,7 +142,38 @@ class MessageHandler:
                     chatwoot_additional_params=chatwoot_additional_params,
                     recent_messages=recent_messages
                 )
-                
+
+                # Check if we should auto-assign to human agent (if last outgoing message was from human)
+                if self._should_auto_assign_to_human(recent_messages):
+                    logger.info("Last outgoing message was from human agent - performing silent assignment")
+
+
+                    from tools.assign_to_human_tool import assign_to_human_tool, HandoverMode
+                    import asyncio
+
+                    assignment_result = asyncio.run(assign_to_human_tool(
+                        context=context,
+                        reason="Continuing conversation with human agent",
+                        mode=HandoverMode.SILENT
+                    ))
+
+                    if assignment_result.get("status") == "success":
+                        # Save context and return without invoking LLM
+                        self.context_loader.save_context(inbox_id, contact_id, context)
+                        chatwoot_sync_data = self.context_loader.prepare_chatwoot_sync_data(context)
+
+                        return {
+                            "success": True,
+                            "response": "",  # No response needed for silent assignment
+                            "reasoning_cycles": 0,
+                            "chatwoot_sync_data": chatwoot_sync_data,
+                            "session_id": f"silent_handover_{uuid.uuid4().hex[:8]}",
+                            "auto_assigned": True
+                        }
+                    else:
+                        logger.warning(f"Auto-assignment failed: {assignment_result.get('message')}")
+                        # Continue with normal processing if assignment fails
+
                 # Process message with ReAct agent
                 result = self._process_with_react(
                     message_content=message_content,
@@ -209,6 +240,48 @@ class MessageHandler:
                 "response": "I encountered an error processing your message. Please try again."
             }
     
+    def _should_auto_assign_to_human(self, recent_messages: Optional[list]) -> bool:
+        """
+        Check if we should automatically assign to human agent based on recent message history.
+        Returns True if the last outgoing message was from a human agent.
+        """
+        if not recent_messages:
+            return False
+
+        # Get bot agent ID for comparison
+        bot_agent_id = self.school_manager.get_bot_agent_id()
+        if not bot_agent_id:
+            logger.warning("No bot agent ID configured - cannot determine auto-assignment")
+            return False
+
+        # Look at messages in reverse order (most recent first), skipping incoming messages
+        # to find the most recent outgoing message
+        for msg in reversed(recent_messages):
+            # Skip system messages (type 2)
+            if msg.get("message_type") == 2:
+                continue
+
+            # Skip incoming messages (type 0) - we only care about outgoing messages
+            if msg.get("message_type") == 0:
+                continue
+
+            # Check if this is an outgoing message (type 1)
+            if msg.get("message_type") == 1:
+                sender = msg.get("sender", {})
+                sender_id = sender.get("id") if sender else None
+
+                # If outgoing message is NOT from bot, it's from human agent
+                if sender_id and sender_id != bot_agent_id:
+                    logger.info(f"Most recent outgoing message was from human agent (ID: {sender_id})")
+                    return True
+                else:
+                    # Most recent outgoing message was from bot
+                    logger.debug(f"Most recent outgoing message was from bot (ID: {sender_id})")
+                    return False
+
+        # No outgoing messages found
+        return False
+
     def _report_error_to_langsmith(self, error: Exception, context: Dict[str, Any]):
         """Report error to LangSmith for tracking"""
         try:
@@ -254,11 +327,16 @@ class MessageHandler:
             if recent_messages:
                 logger.info(f"Processing {len(recent_messages)} recent messages for history")
                 from context.chatwoot_history_formatter import format_chatwoot_messages
+
+                # Get bot agent ID from school manager
+                bot_agent_id = self.school_manager.get_bot_agent_id()
+
                 # Get last 14 messages and exclude the current message
                 chatwoot_history = format_chatwoot_messages(
                     messages=recent_messages,
                     limit=14,
-                    exclude_last=True  # Don't include current message in history
+                    exclude_last=True,  # Don't include current message in history
+                    bot_agent_id=bot_agent_id
                 )
                 if chatwoot_history:
                     logger.info(f"Formatted {len(recent_messages)} messages into history ({len(chatwoot_history)} chars)")

@@ -187,6 +187,7 @@ class ContextLoader:
             "working_days": self.school_manager.get_working_days(school_id),
             "pipedrive_pipeline_id": self.school_manager.get_pipedrive_pipeline_id(school_id),
             "chatwoot_inbox_id": inbox_id,
+            "chatwoot": self.school_manager.get_chatwoot_config(school_id),
             "other_branches": self.school_manager.get_other_branches()
         }
     

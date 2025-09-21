@@ -1,6 +1,6 @@
 from .models import (
     PersistentContext,
-    RuntimeContext, 
+    RuntimeContext,
     ActiveTaskContext,
     FullContext,
     TaskType,
@@ -11,11 +11,12 @@ from .models import (
 )
 from .redis_helpers import RedisContextManager, redis_manager
 from .context_loader import ContextLoader, context_loader
+from .context_formatter import format_context_for_prompt, format_active_task_context
 
 __all__ = [
     "PersistentContext",
     "RuntimeContext",
-    "ActiveTaskContext", 
+    "ActiveTaskContext",
     "FullContext",
     "TaskType",
     "TaskStatus",
@@ -25,5 +26,7 @@ __all__ = [
     "RedisContextManager",
     "redis_manager",
     "ContextLoader",
-    "context_loader"
+    "context_loader",
+    "format_context_for_prompt",
+    "format_active_task_context"
 ]

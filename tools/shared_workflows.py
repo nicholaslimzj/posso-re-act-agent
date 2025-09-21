@@ -61,13 +61,13 @@ def analyze_data_collection_requirements(
                     "required": True
                 },
                 {
-                    "name": "parent_preferred_email", 
+                    "name": "parent_preferred_email",
                     "display": "your email address",
-                    "question": "What's the best email to reach you at?" if purpose == "callback_request" 
+                    "question": "What's the best email to reach you at?" if purpose == "callback_request"
                               else "What's the best email to send the tour confirmation to?",
-                    "why": "to send you information" if purpose == "callback_request" 
+                    "why": "to send you information" if purpose == "callback_request"
                           else "to send tour details",
-                    "required": True
+                    "required": False
                 },
                 {
                     "name": "parent_preferred_phone",
@@ -78,7 +78,7 @@ def analyze_data_collection_requirements(
                                     else "What's your phone number for our records?"),
                     "why": "for the callback" if purpose == "callback_request" 
                           else "for our records",
-                    "required": True if purpose == "callback_request" else False
+                    "required": True
                 }
             ]
         },
@@ -185,9 +185,11 @@ def analyze_data_collection_requirements(
             # Build context hint based on stage
             if stage["stage"] == "parent_info":
                 if runtime_context and runtime_context.whatsapp_name:
-                    context_hint = f"Ask {runtime_context.whatsapp_name} if their WhatsApp details are fine to use for our records."
+                    whatsapp_name = runtime_context.whatsapp_name
+                    whatsapp_phone = runtime_context.whatsapp_phone or "your WhatsApp number"
+                    context_hint = f"Explicitly mention their WhatsApp name '{whatsapp_name}' and number '{whatsapp_phone}' and check if you can use these details for records, or if they prefer to provide different details. Just ask for name, do not call it prefererd name."
                 else:
-                    context_hint = "Collect parent contact details together. You can suggest using their WhatsApp name/phone if available in the context."
+                    context_hint = "Collect parent contact details together"
             elif stage["stage"] == "child_info":
                 required_count = len(missing_required_fields)
                 optional_count = len(missing_optional_fields)

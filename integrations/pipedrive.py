@@ -610,8 +610,8 @@ async def create_or_get_person(
         # For now, always create new (in production, would check for existing first)
         request = CreatePersonRequest(
             name=name,
-            phones=[phone] if phone else None,
-            emails=[email] if email else None
+            phones=[phone] if phone and phone.strip() and phone != "Unknown" else None,
+            emails=[email] if email and email.strip() and "@" in email and email != "Unknown" else None
         )
         # Request prepared with validated data
 
