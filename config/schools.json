@@ -1,7 +1,7 @@
 {
   "schools": {
-    "77714": {
-      "school_id": "77714",
+    "78861": {
+      "school_id": "78861",
       "name": "Posso Preschool @ Tampines Point",
       "branch_phone": "+6567894131",
       "address": "2 Tampines Central 6, #05-03/04, Singapore 529483",
@@ -16,7 +16,6 @@
         },
         "activity_types": {
           "school_tour": "meeting",
-          "callback": "call",
           "block_day": "block"
         },
         "custom_fields": {
@@ -26,14 +25,14 @@
         }
       },
       "chatwoot": {
-        "inbox_id": 77714,
-        "agent_id_for_handover": 130096
+        "inbox_id": 78861,
+        "agent_id_for_handover": 137975
       },
       "tour_slots": ["10:00", "13:00"],
       "working_days": [1, 2, 3, 4, 5]
     },
-    "74274": {
-      "school_id": "74274",
+    "78865": {
+      "school_id": "78865",
       "name": "Posso Preschool @ West Coast Rise",
       "branch_phone": "+6567744131",
       "address": "30 West Coast Rise, Singapore 127473",
@@ -48,7 +47,6 @@
         },
         "activity_types": {
           "school_tour": "meeting",
-          "callback": "call",
           "block_day": "block_day"
         },
         "custom_fields": {
@@ -58,15 +56,15 @@
         }
       },
       "chatwoot": {
-        "inbox_id": 74274,
-        "agent_id_for_handover": 130096
+        "inbox_id": 78865,
+        "agent_id_for_handover": 137975
       },
       "tour_slots": ["10:00", "13:00", "15:00"],
       "working_days": [1, 2, 3, 4, 5]
     }
   },
   "bot": {
-    "agent_id": 130086
+    "agent_id": 130096
   },
   "other_branches": {
     "bedok": {

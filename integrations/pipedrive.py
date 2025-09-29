@@ -342,6 +342,13 @@ async def create_tour_activity(
         TourBookingResponse with activity details or error
     """
     try:
+        # Get school configuration for activity types
+        from config import school_manager
+        school_config = school_manager.get_school_config(school_id)
+        activity_type = "meeting"  # Default fallback
+        if school_config and school_config.get("pipedrive", {}).get("activity_types", {}).get("school_tour"):
+            activity_type = school_config["pipedrive"]["activity_types"]["school_tour"]
+
         # Create booking request model for UTC conversion
         booking = TourBookingRequest(
             deal_id=deal_id,
@@ -350,10 +357,10 @@ async def create_tour_activity(
             child_name=child_name,
             child_level=child_level
         )
-        
+
         # Get UTC datetime
         utc_date, utc_time = booking.get_utc_datetime()
-        
+
         # Use standardized format for subject
         subject = format_activity_subject(
             parent_name=parent_name or "Parent",
@@ -361,11 +368,11 @@ async def create_tour_activity(
             child_dob=child_dob,
             enrollment_date=enrollment_date
         )
-        
+
         # Create activity request
         activity_request = CreateActivityRequest(
             subject=subject,
-            type="meeting",
+            type=activity_type,
             deal_id=deal_id,
             due_date=utc_date,
             due_time=utc_time,
@@ -481,18 +488,24 @@ async def reschedule_tour_activity(
     tour_time: str,
     school_id: str,
     child_name: Optional[str] = None,
-    child_level: Optional[str] = None
+    child_level: Optional[str] = None,
+    parent_name: Optional[str] = None,
+    child_dob: Optional[str] = None,
+    enrollment_date: Optional[str] = None
 ) -> TourBookingResponse:
     """
     Reschedule an existing tour activity in Pipedrive.
-    
+
     Args:
         activity_id: Existing activity ID to update
         tour_date: New date in YYYY-MM-DD format
         tour_time: New time in HH:MM format (Singapore time)
         child_name: Child's name for activity subject
         child_level: Education level for activity subject
-        
+        parent_name: Parent's name for standardized subject format
+        child_dob: Child's DOB for standardized subject format
+        enrollment_date: Preferred enrollment date for subject format
+
     Returns:
         TourBookingResponse with updated details or error
     """
@@ -509,7 +522,14 @@ async def reschedule_tour_activity(
         
         # Get UTC datetime
         utc_date, utc_time = booking.get_utc_datetime()
-        subject = booking.get_subject()
+
+        # Use standardized subject format
+        subject = format_activity_subject(
+            parent_name=parent_name or "Parent",
+            child_name=child_name,
+            child_dob=child_dob,
+            enrollment_date=enrollment_date
+        )
         
         # Create update request
         update_request = UpdateActivityRequest(

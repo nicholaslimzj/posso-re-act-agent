@@ -61,16 +61,17 @@ async def upload_faq_data():
     # Prepare data for upload using upsert-data (auto-vectorization)
     vectors_to_upload = []
     for i, section in enumerate(sections):
-        # Extract title (first line) and content
-        lines = section.split('\n')
+        # Extract title (first line) and answer (rest)
+        lines = section.split('\n', 1)  # Split only on first newline
         title = lines[0] if lines else f"Section {i+1}"
-        
+        answer = lines[1].strip() if len(lines) > 1 else ""
+
         vectors_to_upload.append({
             "id": f"faq_{i}",
-            "data": section,  # Raw text - Upstash will vectorize this
+            "data": section,  # Full text for vectorization (question + answer)
             "metadata": {
                 "title": title,
-                "content": section,
+                "content": answer,  # Just the answer, without the question
                 "section_id": i
             }
         })

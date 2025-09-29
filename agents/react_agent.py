@@ -72,6 +72,7 @@ class ReActAgent:
             """
             Retrieve FAQ answer for school/tour related questions.
             Simplify the user's question to key terms for better search.
+            Don't include the school name in queries - FAQ content is already school-specific.
             Args:
                 question: Clean, simple version of user's question (remove chat fluff, keep core intent)
             Returns:

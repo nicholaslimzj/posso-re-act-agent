@@ -52,9 +52,15 @@ def check_tour_slots(
         
         # Get start of week (Monday) for the reference date
         start_date = _get_week_start(reference_date)
-        
-        # Calculate end date (14 days from start)
-        end_date = start_date + timedelta(days=13)
+
+        # Calculate end date (limited to 1 month from today)
+        singapore_tz = pytz.timezone('Asia/Singapore')
+        today = datetime.now(singapore_tz).date()
+        max_end_date = today + timedelta(days=30)
+
+        # Use the earlier of: 14 days from start OR 30 days from today
+        natural_end_date = start_date + timedelta(days=13)
+        end_date = min(natural_end_date, max_end_date)
         
         # Get blocked slots from Pipedrive (all activities, not just tours)
         blocked_slots = asyncio.run(get_blocked_slots(
@@ -69,8 +75,6 @@ def check_tour_slots(
         
         # Build availability map
         availability = {}
-        singapore_tz = pytz.timezone('Asia/Singapore')
-        today = datetime.now(singapore_tz).date()
         # Skip past dates and today
         
         current_date = start_date

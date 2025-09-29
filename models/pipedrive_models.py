@@ -288,11 +288,6 @@ class TourBookingRequest(BaseModel):
         
         return actual_date, utc_time
     
-    def get_subject(self) -> str:
-        """Generate activity subject"""
-        from datetime import datetime
-        formatted_date = datetime.strptime(self.tour_date, "%Y-%m-%d").strftime("%b %Y")
-        return f"Tour - {self.child_level or 'TBD'} - {formatted_date} - {self.child_name or 'Parent'}"
 
 
 class TourBookingResponse(BaseModel):

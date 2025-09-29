@@ -160,7 +160,6 @@ def request_callback(
         note_content += f"Child: {persistent_context.child_name}\n"
         
         if persistent_context.child_dob:
-            from datetime import datetime
             try:
                 dob_date = datetime.strptime(persistent_context.child_dob, "%Y-%m-%d")
                 age_years = (datetime.now() - dob_date).days // 365

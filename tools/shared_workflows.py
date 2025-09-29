@@ -171,14 +171,18 @@ def analyze_data_collection_requirements(
         # If we have missing required fields in this stage, return batch collection
         if missing_required_fields:
             # Smart skip logic: for tours only, if we have name + email, phone is optional
-            if (stage["stage"] == "parent_info" and 
-                purpose == "tour_booking" and 
+            if (stage["stage"] == "parent_info" and
+                purpose == "tour_booking" and
                 len(present_required_fields) >= 2):
                 # Have name + email, that's enough for tours (phone is optional)
                 continue
-                
-            # Collect all missing fields (required + optional) as a batch
-            all_missing_fields = missing_required_fields + missing_optional_fields
+
+            # For callback requests, only ask for required fields (phone is critical, email is truly optional)
+            if purpose == "callback_request":
+                all_missing_fields = missing_required_fields  # Only required fields for callbacks
+            else:
+                # Collect all missing fields (required + optional) as a batch
+                all_missing_fields = missing_required_fields + missing_optional_fields
             field_names = [f["name"] for f in all_missing_fields]
             questions = {f["name"]: f["question"] for f in all_missing_fields}
             
