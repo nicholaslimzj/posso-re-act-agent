@@ -28,7 +28,7 @@
         "inbox_id": 78861,
         "agent_id_for_handover": 137975
       },
-      "tour_slots": ["10:00", "13:00"],
+      "tour_slots": ["09:30", "10:30", "15:00"],
       "working_days": [1, 2, 3, 4, 5]
     },
     "78865": {
@@ -59,7 +59,7 @@
         "inbox_id": 78865,
         "agent_id_for_handover": 137975
       },
-      "tour_slots": ["10:00", "13:00", "15:00"],
+      "tour_slots": ["09:30", "10:30", "15:00"],
       "working_days": [1, 2, 3, 4, 5]
     }
   },
