@@ -22,10 +22,11 @@ def check_tour_slots(
     Args:
         runtime_context: Runtime context containing school config and identifiers
         preferences: Optional dict with:
-            - date: Specific date (YYYY-MM-DD)
+            - date: Specific date (YYYY-MM-DD) to start searching from
             - day_of_week: Day name (Monday, Tuesday, etc.)
             - time_preference: "morning" | "afternoon" | specific time (HH:MM)
             - next_week: bool - if True, check next week instead of this week
+            - weeks_ahead: int - number of weeks ahead to start searching (e.g., 2 for two weeks from now)
     
     Returns:
         Dictionary with available slots organized by date
@@ -112,12 +113,14 @@ def check_tour_slots(
                 # Check if slot is blocked
                 if slot_key not in blocked_slots:
                     # Format time for display
-                    hour = int(slot_time.split(":")[0])
+                    time_parts = slot_time.split(":")
+                    hour = int(time_parts[0])
+                    minute = time_parts[1] if len(time_parts) > 1 else "00"
                     am_pm = "AM" if hour < 12 else "PM"
                     display_hour = hour if hour <= 12 else hour - 12
                     if display_hour == 0:
                         display_hour = 12
-                    formatted_time = f"{display_hour}:00 {am_pm}"
+                    formatted_time = f"{display_hour}:{minute} {am_pm}"
                     
                     available_times.append({
                         "time": slot_time,

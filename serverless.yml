@@ -11,7 +11,7 @@ provider:
   stage: ${opt:stage, 'dev'}
   region: ${opt:region, 'ap-southeast-1'}  # Singapore region
   memorySize: 2048  # More memory for faster processing
-  timeout: 30  # 30 seconds to match API Gateway limit
+  timeout: 28  # 28 seconds, allowing 1s buffer for API Gateway timeout (29s)
   
   environment:
     ENV: production
